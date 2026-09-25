@@ -1,0 +1,19 @@
+#+TITLE: Home hub: start here
+#+DATE: 2026-09-25
+#+STARTUP: showall
+
+This folder sets up the home laptop (Arch) as the always-on hub for the work laptop, the phone and
+the clusters. It covers Tailscale, sync through GitHub, Taskwarrior and Timewarrior sync, the study
+pages on the phone, and backups you can rebuild a machine from. It is separate from the study
+system, and it lives in its own private repository, =h-lima/home_hub=.
+
+| File                     | What it is                                                                          |
+|--------------------------+-------------------------------------------------------------------------------------|
+| [[file:runbook.org][runbook.org]]              | *Start here, phase A, step A1.* The step-by-step checklist (=C-c C-t= marks a step done) |
+| [[file:helpers.org][helpers.org]]              | What every script in =bin/= does, where it runs, what it changes                    |
+| [[file:overview.org][overview.org]]             | The overall picture: what goes where, and a shorter version of the steps              |
+| [[file:recovery.org][recovery.org]]             | Backups and recovery: why restic, and scenarios 1-7 for when something breaks        |
+| =bin/=                   | The helper scripts (settings in =bin/config.sh=)                                      |
+Two things stay with the lecture library, in =~/learning/lectures=, because they must live in that
+repository: the =progress.json= merge driver (=main_lectures/tools/progress-merge.py=) and the
+=LIBRARY_HOSTS= option in =main_lectures/html-books/serve.py=.

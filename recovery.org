@@ -1,0 +1,308 @@
+#+TITLE: Backups and recovery: getting everything back when a machine dies
+#+DATE: 2026-09-25
+#+STARTUP: overview
+
+A copy of this file is kept on the backup drive, at =backups/RECOVERY/README-home-recovery.org=,
+next to the =restic= program and the latest system manifest. You can still read it when every
+laptop is dead.
+
+* What is protected, and where
+| What                                                   | Backed up by                                       | Recovery goal                                  |
+|--------------------------------------------------------+----------------------------------------------------+------------------------------------------------|
+| Home laptop: *the whole system* (/, /boot, /home, …)   | =backup-system= (root), daily 03:30                | a working laptop again, same as the day before |
+| Home laptop: =/mnt/StorageHDD= (documents, library, research) | the same snapshot                           | every file back, on a new disk if needed        |
+| Work laptop: =/home/hlima= only                        | =backup.sh= (user), daily 13:15 over Tailscale     | your files on a fresh Ubuntu install            |
+| Cluster data                                           | =backup-clusters.sh= (rsync)                       | a copy of your folders                          |
+| Study system, org-roam, lectures, Timewarrior          | GitHub (every =sync-all=) *and* the snapshots      | =git clone=                                     |
+| Tasks                                                  | every laptop's own database + =task-keep= JSON exports twice a day + the server DB copy + the snapshots | scenario 7 |
+The Toshiba drive holds:
+#+begin_example
+/run/media/archx/Toshiba_4T/backups/
+├── restic/<home-hostname>/   the home laptop: system + home + StorageHDD (encrypted, deduplicated)
+├── restic/ubuntu-hp/         the work laptop's /home/hlima
+├── clusters/<name>/          plain copies of cluster folders (+ .deleted/<date>/)
+└── RECOVERY/                 readable without restic: this file, the restic program, manifest-<host>/
+#+end_example
+The *manifest* is written before every snapshot, in =/var/backups/system-manifest/= and in
+=RECOVERY/manifest-<host>/=. It holds the list of installed packages (official and AUR), the
+partition tables (=partitions-sda.sfdisk=), every filesystem UUID (=disks-blkid.txt=), =fstab=, the
+boot loader (=boot.txt=), the enabled services, your user and uid, and SMART disk health
+(=smart.txt=). With it you can rebuild the laptop without remembering how it was set up.
+
+* Why restic, when rsync and rsnapshot have served you
+rsync and rsnapshot are good tools, and rsnapshot's hard-linked snapshots are close to what restic
+does. They fall short here on four points:
+| Need here                                                | rsync / rsnapshot                                                                                   | restic                                                                             |
+|----------------------------------------------------------+-----------------------------------------------------------------------------------------------------+------------------------------------------------------------------------------------|
+| Restore a whole Linux system from the copy               | only if the drive is ext4: on NTFS/exFAT, owners, permissions and symlinks are lost or mangled       | owners, permissions, ACLs, symlinks and hard links are stored inside the repository, on any filesystem |
+| Many versions of a 1 TB disk on a 4 TB drive             | file-level: a changed, renamed or moved file is stored again in full                                  | block-level deduplication and compression: moving the library costs almost nothing |
+| The work laptop backs up by itself, from anywhere        | rsnapshot pulls, so the home laptop must catch the work laptop online and reachable                  | the work laptop pushes over SFTP whenever it runs; a missed run is caught up        |
+| A drive that can be lost, or taken                       | plain files: anyone who picks up the drive can read your documents                                  | encrypted: the drive is useless without the password                               |
+| Knowing that the backup is good                          | nothing checks the copies                                                                           | =restic check --read-data-subset= reads the data back monthly and verifies it       |
+What you give up: without the password and the program you cannot read the files. You can still
+*browse* the backups like rsnapshot folders: =restic mount= (see below) shows every snapshot as an
+ordinary directory tree. Keep the password in your password manager, and in a sealed envelope for
+someone you trust.
+
+rsync is still the right tool for the clusters (=backup-clusters.sh=), because there is nothing to
+install on them.
+
+* Keep these outside the laptop, now
+- [ ] The restic password, in your password manager (and on paper, somewhere safe).
+- [ ] An *Arch Linux USB stick* made today: download the ISO from archlinux.org, then
+      =sudo dd if=archlinux-*.iso of=/dev/sdX bs=4M status=progress oflag=sync=. Label it.
+- [ ] Know that the Toshiba drive and the home laptop sit in the same house. A fire, a theft or a
+      power surge takes both. For the things that cannot be recreated (personal documents,
+      research data), a second copy elsewhere is the only protection. Two simple options:
+      a second USB drive that lives at work or with family, filled once a quarter with
+      =restic copy= (see the end of this file), or a cloud bucket, which restic supports directly.
+
+* Scenario 1 — I deleted or broke a file (any machine)
+Browse the snapshots like folders:
+#+begin_src sh
+sudo pacman -S --needed fuse3            # once
+sudo mkdir -p /mnt/restic
+sudo backup-system snapshots             # home laptop; on the work laptop: sh ~/sys_org/home_hub/bin/backup.sh snapshots
+sudo RESTIC_PASSWORD_FILE=/etc/restic/password restic -r /run/media/archx/Toshiba_4T/backups/restic/$(hostname -s) mount /mnt/restic
+# in another terminal: /mnt/restic/snapshots/2026-09-24T03:30:00+02:00/home/archx/…   (or …/latest/…)
+# copy the file out with cp, then Ctrl-C the mount
+#+end_src
+Or restore directly:
+#+begin_src sh
+sudo RESTIC_PASSWORD_FILE=/etc/restic/password restic -r <repo> restore latest --include /mnt/StorageHDD/Documents/tax --target /tmp/r
+#+end_src
+Work laptop: =sh ~/sys_org/home_hub/bin/backup.sh restore latest /home/hlima/some/folder /tmp/r=.
+
+* Scenario 2 — the StorageHDD dies (the system is fine)
+1. Replace the disk. Format it (=sudo mkfs.ext4 -L StorageHDD /dev/sdX1=), then put its *new* UUID
+   in =/etc/fstab= in place of the old one (=lsblk -f=), and =sudo mount /mnt/StorageHDD=.
+2. Restore everything:
+   #+begin_src sh
+   sudo RESTIC_PASSWORD_FILE=/etc/restic/password restic -r /run/media/archx/Toshiba_4T/backups/restic/$(hostname -s) \
+        restore latest --include /mnt/StorageHDD --target /
+   #+end_src
+   1 TB from a USB drive takes several hours, so leave it running overnight.
+3. =sudo backup-system run=, so the next snapshot sees the new disk.
+Before this ever happens, =smart.txt= in the manifest and =journalctl -u backup-system | grep SMART=
+warn you when a disk starts failing. Look at them at every monthly review.
+
+* Scenario 3 — the home laptop's system disk dies; same laptop, new disk (bare-metal restore)
+Result: the laptop exactly as it was at the last snapshot, with the same Tailscale identity, services,
+settings and files. It takes about 2-4 hours, mostly copying.
+1. Put in the new disk. It must be at least as large as the old one. Boot the Arch USB stick
+   (F12/F9/Esc for the boot menu), and connect to the network (=iwctl= for Wi-Fi) if you want to
+   install packages. The kit's restic works without a network.
+2. Plug in the Toshiba drive and mount it:
+   #+begin_src sh
+   lsblk -f                                         # find the Toshiba partition
+   mkdir -p /mnt/t && mount /dev/sdY1 /mnt/t
+   K=/mnt/t/backups/RECOVERY; M=$K/manifest-<host>
+   cat $M/system.txt $M/disks-lsblk.txt $M/mounts.txt $M/boot.txt   # read how the old disk was laid out
+   R() { $K/restic-linux-x86_64 -r /mnt/t/backups/restic/<host> "$@"; }   # or: pacman -Sy restic, and use restic
+   R snapshots                                      # asks for the password
+   #+end_src
+3. Recreate the partitions exactly (sda → your new disk's name, e.g. nvme0n1):
+   #+begin_src sh
+   sfdisk /dev/sdX < $M/partitions-sda.sfdisk
+   #+end_src
+4. Recreate the filesystems *with their old UUIDs*, so that =fstab= and the boot loader need no
+   changes. The UUIDs are in =$M/disks-blkid.txt=:
+   #+begin_src sh
+   mkfs.ext4 -U <root-uuid> /dev/sdX2                 # ext4 root (and /home if it was separate)
+   mkfs.fat -F32 -i <VOLID-without-dash> /dev/sdX1    # EFI partition: UUID="ABCD-1234" → -i ABCD1234
+   mkswap -U <swap-uuid> /dev/sdX3                    # if there was a swap partition
+   #+end_src
+   /If the root was btrfs/: =mkfs.btrfs -U <uuid>=, then recreate the subvolumes listed in
+   =mounts.txt= (=btrfs subvolume create /mnt/new/@= etc.) before mounting them as in =mounts.txt=.
+5. Mount them as the old system had them (=mounts.txt=), under =/mnt/new=:
+   #+begin_src sh
+   mount /dev/sdX2 /mnt/new --mkdir
+   mount /dev/sdX1 /mnt/new/boot --mkdir      # or /mnt/new/efi — whatever mounts.txt says
+   #+end_src
+6. Restore the system (the StorageHDD part stays on its own disk):
+   #+begin_src sh
+   R restore latest --target /mnt/new --exclude /mnt/StorageHDD
+   mkdir -p /mnt/new/{proc,sys,dev,run,tmp,mnt/StorageHDD} && chmod 1777 /mnt/new/tmp
+   #+end_src
+7. Make it bootable:
+   #+begin_src sh
+   arch-chroot /mnt/new
+   mkinitcpio -P
+   # boot.txt says which boot loader you had:
+   bootctl install                                                             # systemd-boot
+   # or: grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB && grub-mkconfig -o /boot/grub/grub.cfg
+   # or (BIOS): grub-install /dev/sdX && grub-mkconfig -o /boot/grub/grub.cfg
+   exit
+   umount -R /mnt/new && reboot
+   #+end_src
+8. After the reboot: =tailscale status= (still =home=), =systemctl --user status lectures-web=,
+   =sudo backup-system run=. If the StorageHDD disk died too, continue with scenario 2.
+
+* Scenario 4 — the home laptop is dead; rebuild on another computer
+New hardware can differ in disks, boot mode and Wi-Fi, so on a new machine you rebuild rather than
+clone. You install a fresh Arch, then put back your packages, your settings and your files. It takes
+about half a day.
+1. Install Arch from the USB stick. =archinstall= is quickest. Use the *same user name*, =archx=,
+   with the *same uid* (=user.txt= in the manifest, normally 1000), and the same hostname
+   (=system.txt=), so that your snapshots continue in the same repository.
+2. Log in, connect to the network, =sudo pacman -S restic fuse3=, and mount the Toshiba drive at
+   =/run/media/archx/Toshiba_4T= (=sudo mount /dev/sdY1 …=). Then:
+   #+begin_src sh
+   export RESTIC_REPOSITORY=/run/media/archx/Toshiba_4T/backups/restic/<old-host>
+   M=/run/media/archx/Toshiba_4T/backups/RECOVERY/manifest-<old-host>
+   sudo -E restic snapshots
+   #+end_src
+3. Reinstall your software from the lists. A package that no longer exists is skipped:
+   #+begin_src sh
+   comm -12 <(pacman -Slq | sort) <(sort $M/pkglist-native.txt) | sudo pacman -S --needed -
+   # AUR: install yay first (git clone https://aur.archlinux.org/yay-bin.git && cd yay-bin && makepkg -si)
+   yay -S --needed - < $M/pkglist-aur.txt
+   #+end_src
+4. Restore your home folder. Do it from a text console (Ctrl-Alt-F3, log in as root), so that the
+   desktop is not writing into it at the same time:
+   #+begin_src sh
+   restic restore latest --include /home/archx --target /
+   #+end_src
+5. Bring back the settings you choose, never the whole of =/etc= (it describes the old hardware):
+   #+begin_src sh
+   restic restore latest --include /etc --include /var/lib/tailscale --target /root/old
+   cp -a /root/old/etc/ssh/ssh_host_* /etc/ssh/                  # the work laptop keeps trusting "home"
+   cp -a /root/old/etc/ssh/sshd_config.d /etc/ssh/
+   cp -a /root/old/etc/systemd/logind.conf.d /etc/systemd/
+   cp -a /root/old/etc/restic /etc/
+   systemctl stop tailscaled; cp -a /root/old/var/lib/tailscale/. /var/lib/tailscale/; systemctl start tailscaled   # same tailnet identity
+   diff /root/old/etc/fstab /etc/fstab                          # copy over the Toshiba and StorageHDD lines, with the NEW disks' UUIDs
+   #+end_src
+6. StorageHDD: prepare the new data disk as in scenario 2, then
+   =restic restore latest --include /mnt/StorageHDD --target /=.
+7. Services: enable the ones from =$M/services-system.txt= that you want (sshd, tailscaled,
+   smartd). Then run =sudo loginctl enable-linger archx= and
+   =sh ~/sys_org/home_hub/bin/install-home.sh=, which recreates the user services,
+   the tailscale serve rules and the backup timers.
+8. =sudo backup-system run=, and =task sync= / =sync-all= on the work laptop to check that
+   everything talks to the new hub.
+
+* Scenario 5 — the work laptop dies or is replaced
+1. Install Ubuntu with user =hlima=, and install Tailscale and restic (=overview.org= steps 3-4).
+   Copy =~/.ssh= from the backup first (below), or make a new key and add it to the home laptop and
+   GitHub.
+2. Put the restic password in =~/.config/restic/password= (from your password manager). Then:
+   #+begin_src sh
+   export RESTIC_PASSWORD_FILE=~/.config/restic/password
+   export RESTIC_REPOSITORY=sftp:archx@home:/run/media/archx/Toshiba_4T/backups/restic/ubuntu-hp
+   restic snapshots
+   restic restore latest --target /           # /home/hlima comes back, dotfiles and all
+   #+end_src
+3. Reinstall your software from the list the backup kept (=~/.config/pkglist-apt.txt=):
+   =sudo apt install $(cat ~/.config/pkglist-apt.txt)=. Build Taskwarrior 3 again (runbook D3).
+4. =sh ~/sys_org/home_hub/bin/install-laptop.sh=, then =task sync= and =sync-all=.
+If the new laptop has a different hostname, back up to a new repository name, or pass
+=--host ubuntu-hp= so that the old snapshots stay in the same history.
+
+* Scenario 6 — the Toshiba drive dies
+Your originals are fine, but you have no backups until you replace the drive. Buy a new drive,
+format it, give it the same fstab line with its new UUID, then run =sudo backup-system run= at home
+and let the work laptop's timer run. The old snapshot history is gone. This is the case that the
+second copy elsewhere protects against.
+
+* Scenario 7 — the task sync server breaks, or a laptop's task database does
+*First, where your tasks live.* The sync server holds your tasks only as an encrypted log of changes.
+*Every laptop holds the complete list* in its own database (=~/.task/taskchampion.sqlite3=). A broken
+server therefore never takes your tasks with it: it only stops the laptops from exchanging changes.
+Behind that there are three more layers:
+| Layer                                                   | Where                                                            | How old at worst |
+|---------------------------------------------------------+------------------------------------------------------------------+------------------|
+| each laptop's own database                              | =~/.task/=                                                       | current          |
+| =task-keep= JSON exports (twice a day, 90 days)         | =~/backups/tasks/tasks-DATE.json= on both laptops                | 12 hours         |
+| =task-keep= copy of the server database (14 days)       | =~/backups/tasks/server-DATE.sqlite3= on the home laptop         | 12 hours         |
+| restic snapshots (all of the above)                     | the Toshiba drive                                                | 1 day            |
+| safety snapshots taken before risky steps               | =~/safety/= and =backups/safety/= on the drive                   | the day you took them |
+
+** 7a. =task sync= fails, but tasks show normally
+Check the server first:
+#+begin_src sh
+ssh home 'systemctl --user status tasksync --no-pager; journalctl --user -u tasksync -n 30 --no-pager'
+ssh home 'tailscale serve status'           # port 10000 must still point to 127.0.0.1:8080
+ssh home 'systemctl --user restart tasksync'
+#+end_src
+If it runs, and the error persists or mentions versions or history, go to 7b.
+
+** 7b. The server's data is damaged or lost: rebuild it from a laptop (always works)
+1. *Take a safety snapshot on both laptops* (=safety-snapshot.sh=). Each laptop may hold changes
+   that the other never received.
+2. Merge the two lists into one (same tool as the first setup):
+   #+begin_src sh
+   # work laptop:
+   scp ~/safety/<newest>/task-export.json home:tw-work.json
+   # home laptop:
+   cp ~/safety/<newest>/task-export.json ~/tw-home.json
+   python3 ~/sys_org/home_hub/bin/tw-merge-exports.py tw-home.json tw-work.json > tw-merged.json
+   #+end_src
+3. Give the server a clean start. The old data is kept, for inspection:
+   #+begin_src sh
+   systemctl --user stop tasksync
+   mv ~/.local/share/taskchampion-sync-server ~/.local/share/taskchampion-sync-server.broken-$(date +%F)
+   mkdir -p ~/.local/share/taskchampion-sync-server
+   systemctl --user start tasksync
+   #+end_src
+4. Home laptop: a fresh database holding the merged list, then upload it:
+   #+begin_src sh
+   mv ~/.task ~/.task.before-rebuild && mkdir -p ~/.task/hooks && cp ~/.task.before-rebuild/hooks/* ~/.task/hooks/
+   task rc.hooks=0 import ~/tw-merged.json && task sync
+   #+end_src
+5. Work laptop: a fresh, empty database that downloads everything:
+   #+begin_src sh
+   mv ~/.task ~/.task.before-rebuild && mkdir -p ~/.task/hooks && cp ~/.task.before-rebuild/hooks/* ~/.task/hooks/
+   task sync && task count
+   #+end_src
+Why fresh databases: each laptop remembers the last server version it saw. A new, empty server does
+not know those versions, and would refuse the old databases.
+/Alternative to step 3/: leave the old server data where it is and start a new task history next
+to it. Make a new client id (=uuidgen=), and put it in the =--allow-client-id= of
+=~/.config/systemd/user/tasksync.service= and in =sync.server.client_id= of =~/.taskrc.sync= on both
+laptops. Then =systemctl --user daemon-reload && systemctl --user restart tasksync=, and do steps 4-5.
+
+** 7c. Restore the server from its daily copy (only if every laptop is also lost)
+The laptops are the better source, because they are more recent. If none survives (for example, a
+new laptop after scenario 4 with no task data), use the newest JSON export first:
+=task rc.hooks=0 import ~/backups/tasks/tasks-<newest>.json= into a fresh =~/.task=, then 7b steps
+3-5. The server database copy (=server-DATE.sqlite3=) is a last resort. You can only read it with
+the sync server itself and the encryption secret:
+#+begin_src sh
+systemctl --user stop tasksync
+cp ~/backups/tasks/server-<date>.sqlite3 ~/.local/share/taskchampion-sync-server/<same file name as before>
+systemctl --user start tasksync
+mv ~/.task ~/.task.old && mkdir ~/.task && task sync     # on a fresh laptop: downloads everything up to <date>
+#+end_src
+
+** 7d. A laptop's own task database is damaged
+Its data is also on the server, so on that laptop:
+=mv ~/.task ~/.task.broken && mkdir -p ~/.task/hooks && cp ~/.task.broken/hooks/* ~/.task/hooks/ && task sync=.
+Any changes made on that laptop since its last sync are in its newest =~/backups/tasks/tasks-DATE.json=.
+Re-import that file (=task rc.hooks=0 import …=) and sync again. Import updates tasks by UUID, so
+nothing is duplicated.
+
+** Never lose the encryption secret
+Without =sync.encryption_secret= (in =~/.taskrc.sync= on each laptop, and in your password manager),
+the server's data cannot be read. The laptops' own databases and the JSON exports do not need it,
+which is one more reason 7b rebuilds from them.
+
+* Drills — a backup you have not restored from is a hope
+| When                    | What                                                                                                               |
+|-------------------------+--------------------------------------------------------------------------------------------------------------------|
+| automatic, weekly       | =backup-prune=: thin old snapshots and =restic check= every repository                                               |
+| automatic, monthly      | =backup-check=: read back 10% of every repository's data                                                            |
+| automatic, twice a day  | =task-keep=: JSON export of all tasks (both laptops) and a copy of the sync server's database (home)                  |
+| monthly review (10 min) | =sudo backup-system snapshots= (a snapshot from last night?), the same for the work laptop, =cat /var/backups/system-manifest/smart.txt=, =systemctl --failed=, =sh ~/sys_org/home_hub/bin/task-keep.sh --list= (today's export exists), and restore one random file from each laptop |
+| once a year             | rehearse scenario 3 or 4 in a virtual machine (virt-manager, or =qemu=) using the real drive: install, restore, boot. Note down every step that surprised you, here |
+
+* Second copy elsewhere (optional, recommended for documents and research)
+Keep a second restic repository on another drive (or in the cloud) and copy snapshots into it now
+and then. The copy is encrypted too:
+#+begin_src sh
+# once: create the second repository with the same chunking, so the copy stays small
+restic -r /run/media/archx/OFFSITE/restic-home init --from-repo /run/media/archx/Toshiba_4T/backups/restic/<host> --copy-chunker-params
+# each quarter, with the offsite drive plugged in:
+restic -r /run/media/archx/OFFSITE/restic-home copy --from-repo /run/media/archx/Toshiba_4T/backups/restic/<host> latest
+#+end_src
+Then take the drive back to where it lives.

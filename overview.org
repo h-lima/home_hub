@@ -1,0 +1,307 @@
+#+TITLE: The home laptop as the hub: Tailscale, GitHub, sync, phone, backups
+#+DATE: 2026-09-25
+#+STARTUP: showall
+
+*Prefer to do it yourself, one step at a time?* [[file:runbook.org][The runbook]] has the same setup as numbered
+steps (what to type, why, how to check, how to undo), with the helper scripts as optional shortcuts.
+
+This page replaces the "which laptop is awake?" parts of [[file:~/learning/study-system/aids/sync-and-mobile.org][two laptops, a tablet and a phone]]. The
+inbox and the rules on that page still hold.
+
+* The picture
+| Machine                        | Role                                                                                                                          |
+|--------------------------------+-------------------------------------------------------------------------------------------------------------------------------|
+| *Home laptop* (Arch, always on) | Your main computer. It also runs the pages for the phone, the Taskwarrior sync server and the backups (onto the Toshiba drive) |
+| *Work laptop* (Ubuntu)          | A full copy of everything. It syncs through GitHub and Tailscale and backs itself up to the home drive                         |
+| *Android phone*                 | Reads the study site and the lecture library over Tailscale, with HTTPS. Nothing is stored on the phone                       |
+| *HPC clusters*                  | Clone from GitHub. Log time with an inbox line. Their data is copied to the home drive                                        |
+| *GitHub* (private repos)        | Where every git repository meets: =study_system=, =org_roam=, =lectures=, =timewarrior=                                        |
+
+What goes where:
+- *Files*: git through GitHub, with =sync-all= at both ends of a session. GitHub is already the
+  meeting point, so no bare repository is needed. A bare repository on the home laptop would only
+  replace GitHub, and it would be out of reach from the clusters.
+- *Tasks*: Taskwarrior 3 syncs through a small server on the home laptop. It is end-to-end
+  encrypted and reached over Tailscale. Taskwarrior's database is binary and cannot be merged by
+  git, which is why it does not go through GitHub.
+- *Hours*: the Timewarrior data is plain text lines, so it goes in a git repository. A merge driver
+  merges the lines by time, so two laptops never produce a conflict.
+- *The phone*: =https://home.<tailnet>.ts.net/= opens the lectures, and =…:8443/= opens the study
+  site. Only your own devices can open them.
+- *Backups*: the *whole home laptop* (system, home folder and =/mnt/StorageHDD=) and the work
+  laptop's =/home/hlima= go onto =/run/media/archx/Toshiba_4T/backups=, as restic snapshots. The
+  home laptop's snapshots come with a manifest to rebuild it from. Tasks are also exported as JSON
+  twice a day. The cluster folders are copied beside them. How to get everything back:
+  [[file:recovery.org][backups and recovery]].
+
+Do the steps in this order. Steps 7-8 repair the Taskwarrior and Timewarrior data that has
+diverged: do them in one sitting, and do not track time or tasks while you are doing them.
+
+* 1. Home laptop: always on, drive always mounted (Arch)
+#+begin_src sh
+# never sleep, even with the lid closed
+sudo mkdir -p /etc/systemd/logind.conf.d
+printf '[Login]\nHandleLidSwitch=ignore\nHandleLidSwitchExternalPower=ignore\nHandleLidSwitchDocked=ignore\n' \
+  | sudo tee /etc/systemd/logind.conf.d/10-server.conf
+sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
+sudo systemctl restart systemd-logind      # (this ends your graphical session, so run it last)
+#+end_src
+The drive is currently mounted by the desktop when you log in. For a server, it must be mounted at
+boot. Find it with =lsblk -f= (note its UUID and FSTYPE), then add *one* line to =/etc/fstab=:
+#+begin_example
+# ext4:
+UUID=<uuid>  /run/media/archx/Toshiba_4T  ext4   defaults,nofail,x-systemd.device-timeout=10s  0 2
+# NTFS (Windows-formatted, common on Toshiba drives):
+UUID=<uuid>  /run/media/archx/Toshiba_4T  ntfs3  uid=1000,gid=1000,nofail,x-systemd.device-timeout=10s  0 0
+# exFAT:
+UUID=<uuid>  /run/media/archx/Toshiba_4T  exfat  uid=1000,gid=1000,nofail,x-systemd.device-timeout=10s  0 0
+#+end_example
+Then run =sudo systemctl daemon-reload && sudo mount -a && mountpoint /run/media/archx/Toshiba_4T=.
+=nofail= means the laptop still boots when the drive is unplugged. The backup scripts check that
+the drive is mounted, so they never fill the internal disk by mistake. restic keeps the file
+permissions inside its repository, so NTFS or exFAT is fine for backups.
+
+SSH server (the work laptop's backups and =install-laptop.sh= use it; step 5 switches it to keys only):
+#+begin_src sh
+sudo pacman -S --needed openssh && sudo systemctl enable --now sshd
+#+end_src
+
+* 2. Home laptop: software (first export the old Taskwarrior)
+*Before* anything else, take a verified safety snapshot. It exports every task, proves the export
+can be imported, and saves =~/.task=, the Timewarrior data and your notes to =~/safety/= (and to the
+drive, once it is reachable). The home laptop already has Taskwarrior 3. Still, copy the script
+over, or follow [[file:runbook.org][the runbook, phase A]] by hand:
+#+begin_src sh
+sh ~/sys_org/home_hub/bin/safety-snapshot.sh     # must end with SAFETY SNAPSHOT COMPLETE
+cp ~/safety/<newest>/task-export.json ~/tw-home.json
+#+end_src
+Then install the software:
+#+begin_src sh
+sudo pacman -S --needed tailscale git github-cli python rsync restic task timew emacs-nox rust
+yay -S quarto-cli-bin taskchampion-sync-server   # AUR (or: paru -S …)
+task --version                                    # must now be 3.x
+#+end_src
+If the AUR package for =taskchampion-sync-server= fails to build:
+=git clone https://github.com/GothenburgBitFactory/taskchampion-sync-server && cd taskchampion-sync-server && cargo build --release && sudo install target/release/taskchampion-sync-server /usr/local/bin/=.
+
+* 3. Work laptop: software (first export the old Taskwarrior)
+The work laptop has Taskwarrior *2.6*. Its database can only be read by 2.6, so take the safety
+snapshot *before* building 3.x:
+#+begin_src sh
+sh ~/sys_org/home_hub/bin/safety-snapshot.sh     # must end with SAFETY SNAPSHOT COMPLETE
+cp ~/safety/<newest>/task-export.json ~/tw-work.json
+cp -a ~/safety /media/hlima/<usb-stick>/                          # a second copy until the drive is reachable
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo apt install restic rsync gh cmake g++ uuid-dev
+#+end_src
+Ubuntu ships Taskwarrior 2.6 up to 26.04, so build 3.x yourself. It takes about 10 minutes and
+needs Rust 1.88 or newer, from rustup:
+#+begin_src sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && . ~/.cargo/env
+V=3.4.2    # or the newest from github.com/GothenburgBitFactory/taskwarrior/releases
+curl -LO https://github.com/GothenburgBitFactory/taskwarrior/releases/download/v$V/task-$V.tar.gz
+tar xzf task-$V.tar.gz && cd task-$V
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j4
+sudo apt remove taskwarrior && sudo cmake --install build && hash -r && task --version
+#+end_src
+
+* 4. Tailscale everywhere
+1. In the admin console (login.tailscale.com): turn on *MagicDNS* and *HTTPS certificates* under
+   DNS. They are needed for the =https://home.<tailnet>.ts.net= addresses.
+2. Home laptop:
+   #+begin_src sh
+   sudo systemctl enable --now tailscaled
+   sudo tailscale up --hostname=home
+   sudo tailscale set --operator=$USER     # lets the scripts run `tailscale serve` without sudo
+   #+end_src
+   In the admin console, open the machine's menu and choose *Disable key expiry* for =home=.
+   Otherwise it drops off the tailnet after 180 days.
+3. Work laptop: =sudo tailscale up=, and log in with the same account.
+4. Phone: install the Tailscale app from Google Play and log in with the same account.
+5. Check from the work laptop: =tailscale ping home=. It works on the home network and on the work
+   network. If the work network blocks UDP, Tailscale relays over HTTPS, which is slower but works.
+   It is worth confirming that your employer's IT policy allows Tailscale on the work laptop.
+
+If you named the home machine something other than =home=, set =HOME_NODE= in
+=~/sys_org/home_hub/bin/config.sh=. Do the same for =HOME_USER= if your user name there is not =archx=.
+
+* 5. SSH from the work laptop to the home laptop
+#+begin_src sh
+# on the work laptop
+[ -f ~/.ssh/id_ed25519 ] || ssh-keygen -t ed25519
+ssh-copy-id archx@home                      # the one time the home password is asked
+printf '\nHost home\n  HostName home\n  User archx\n' >> ~/.ssh/config
+ssh home true && echo ok
+#+end_src
+Then, on the home laptop, refuse passwords from now on:
+#+begin_src sh
+printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\n' | sudo tee /etc/ssh/sshd_config.d/10-keys.conf
+sudo systemctl reload sshd
+#+end_src
+Plain OpenSSH is used rather than Tailscale SSH on purpose: Tailscale SSH can ask you to log in
+again every few hours, which would stop the unattended backups.
+
+* 6. All repositories on GitHub, cloned at the same paths
+The study system and org-roam are already on GitHub. The lectures are not in git yet. Create that
+repository *on the work laptop*, which has them:
+#+begin_src sh
+cd ~/learning/lectures
+find . -name .git -type d ; find . -type f -size +50M   # both must print nothing
+git init -b master && git add . && git commit -m "Lecture library, thesis course and portal course"
+gh auth login                                            # once
+gh repo create h-lima/lectures --private --source . --push
+python3 main_lectures/tools/progress-merge.py install
+#+end_src
+The first push is about 150-250 MB, which is fine for GitHub. Every full rebuild of the HTML books
+adds tens of MB of history, so check the size once a year (=gh repo view h-lima/lectures --json diskUsage=).
+
+Then clone everything on the home laptop, at the same paths as on the work laptop, so that the
+absolute paths in =plan/shelf.csv= resolve on both machines:
+#+begin_src sh
+gh auth login && gh auth setup-git         # or add the home laptop's ssh key to GitHub
+mkdir -p ~/learning ~/sys_org
+git clone git@github.com:h-lima/study_system.git ~/learning/study-system
+git clone git@github.com:h-lima/lectures.git     ~/learning/lectures
+git clone git@github.com:h-lima/org_roam.git     ~/sys_org/org_roam
+git clone git@github.com:h-lima/home_hub.git     ~/sys_org/home_hub     # this folder (see runbook A5)
+cd ~/learning/study-system && sh bin/setup.sh --link
+#+end_src
+The home user is =archx= and the work user is =hlima=, so =$HOME= differs. The scripts all use
+=$HOME=, but =plan/shelf.csv= and the lectures' PDF links contain =/home/hlima/…=. On the home
+laptop, =sudo ln -s /home/archx /home/hlima= makes those paths work unchanged. It is harmless,
+because there is no real =hlima= user there.
+
+* 7. Taskwarrior: merge the two laptops, then sync
+1. Copy the work export to the home laptop: =scp ~/tw-work.json home:= (run on the work laptop).
+2. On the home laptop:
+   #+begin_src sh
+   cd ~
+   python3 ~/sys_org/home_hub/bin/tw-merge-exports.py tw-home.json tw-work.json > tw-merged.json
+   # read the report: tasks changed on both sides keep the newer copy; note their ids to check
+   mv ~/.task ~/.task.v2 && mkdir -p ~/.task/hooks
+   cp ~/.task.v2/hooks/* ~/.task/hooks/ 2>/dev/null   # your Timewarrior hook(s)
+   task rc.hooks=0 import tw-merged.json          # hooks off: an import must not start clocks
+   task count ; task study
+   #+end_src
+   =~/.taskrc= is untouched, so the =include …/study.taskrc= line and your contexts are still there.
+3. Run =install-home.sh= (step 9). It writes =~/.taskrc.sync= and starts the server. Then run
+   =task sync=. The first sync uploads everything.
+4. On the work laptop, once =install-laptop.sh= (step 10) has run:
+   #+begin_src sh
+   mv ~/.task ~/.task.v2 && mkdir -p ~/.task/hooks && cp ~/.task.v2/hooks/* ~/.task/hooks/ 2>/dev/null
+   task sync && task count                        # the same count as on the home laptop
+   #+end_src
+From then on, =sync-all= runs =task sync= on the laptops. The home laptop also syncs by itself
+every 10 minutes.
+
+* 8. Timewarrior: merge, then put it in git
+Both laptops keep their data in =~/.timewarrior= (older layout) or in =~/.local/share/timewarrior=
+(newer Arch installs). Check with =ls -d ~/.timewarrior ~/.local/share/timewarrior=. The steps below
+assume =~/.timewarrior=. On a machine that uses the other folder, move it there
+(=mv ~/.local/share/timewarrior ~/.timewarrior=, and move =~/.config/timewarrior/timewarrior.cfg= into it
+if it exists), then add =export TIMEWARRIORDB=$HOME/.timewarrior= to =~/.bashrc=.
+#+begin_src sh
+# work laptop:
+scp -r ~/.timewarrior/data home:tw-work-data
+# home laptop:
+S=~/sys_org/home_hub/bin
+cp -a ~/.timewarrior ~/.timewarrior.pre-sync
+python3 $S/timew-merge.py dirs ~/.timewarrior/data ~/tw-work-data ~/tw-merged-data
+rm -rf ~/.timewarrior/data && mv ~/tw-merged-data ~/.timewarrior/data
+cd ~/.timewarrior && git init -b master && python3 $S/timew-merge.py install
+git add -A && git commit -m "Timewarrior: home + work merged" && gh repo create h-lima/timewarrior --private --source . --push
+timew summary :month                              # look at the overlaps the merge listed; timew delete @N
+# work laptop:
+mv ~/.timewarrior ~/.timewarrior.pre-sync && git clone git@github.com:h-lima/timewarrior.git ~/.timewarrior
+python3 ~/sys_org/home_hub/bin/timew-merge.py install
+#+end_src
+The merge driver merges every month file line by line, three-way. A deletion, a =timew modify= or
+the closing of an open interval on one laptop carries over to the other. Intervals added on both
+laptops are all kept, sorted by time.
+
+* 9. Home laptop: the hub (one script)
+#+begin_src sh
+mkdir -p ~/.config/restic && (umask 077; pwgen -s 40 1 > ~/.config/restic/password 2>/dev/null \
+  || python3 -c 'import secrets;print(secrets.token_urlsafe(30))' > ~/.config/restic/password)
+cat ~/.config/restic/password     # PUT THIS IN YOUR PASSWORD MANAGER NOW (both laptops use the same file)
+sh ~/sys_org/home_hub/bin/install-home.sh
+#+end_src
+What it sets up, and how to check it:
+| Service        | What                                                                  | Check                                          |
+|----------------+-----------------------------------------------------------------------+------------------------------------------------|
+| =lectures-web= | the lecture library, saving progress to =progress.json=                | =https://home.<tailnet>.ts.net/=               |
+| =study-web=    | the study-system site, rebuilt when commits arrive and hourly          | =https://home.<tailnet>.ts.net:8443/=          |
+| =tasksync=     | Taskwarrior 3 sync server                                             | =task sync= on either laptop                   |
+| =home-refresh= | every 10 min: pull, rebuild, commit phone progress, sync time and tasks | =journalctl --user -u home-refresh -n 20=      |
+| =backup-system= (root) | 03:30: the whole laptop + =/mnt/StorageHDD= + manifest; prune+check Sundays, read-back monthly | =sudo backup-system snapshots= |
+| =task-keep=    | 03:00 and 12:45: JSON export of all tasks + copy of the sync server DB  | =sh ~/sys_org/home_hub/bin/task-keep.sh --list=       |
+The pages are served from separate clones in =~/srv/=. You keep editing =~/learning/…= as always,
+and a half-finished edit never breaks what the phone shows. Everything listens on =127.0.0.1=:
+=tailscale serve= adds HTTPS and shows the pages only to devices on your tailnet.
+
+* 10. Work laptop: connect it
+#+begin_src sh
+mkdir -p ~/.config/restic && (umask 077; cat > ~/.config/restic/password)   # paste the same password, Ctrl-D
+sh ~/sys_org/home_hub/bin/install-laptop.sh
+#+end_src
+This copies the Taskwarrior sync settings, registers the two merge drivers, creates the work
+laptop's backup repository on the home drive, starts a daily backup timer and links =sync-all=.
+The backup runs at 13:15, so it usually runs while you are at work. It goes over Tailscale, and
+when the home laptop is unreachable it simply waits for the next run.
+
+* 11. The phone (Android)
+1. Keep the Tailscale app connected. It can stay on all the time, and only tailnet traffic uses it.
+2. In Chrome or Firefox, open =https://home.<tailnet>.ts.net:8443/notes/week.html= and choose
+   /Add to Home screen/. Do the same for =https://home.<tailnet>.ts.net/= (the lectures). The exact
+   name is shown by =tailscale status= and at the end of =install-home.sh=.
+3. Lectures you mark as read on the phone are saved on the home laptop and committed within 10
+   minutes. They reach the work laptop at its next =sync-all=. Marks from different machines are
+   merged per lecture, and the newest mark wins.
+4. To note something down, keep the inbox habit ([[file:~/learning/study-system/aids/sync-and-mobile.org][§4 there]]). The phone does not write to the repository.
+
+The work laptop can also open the home URLs instead of running its own =serve.py=. Then all reading
+progress lives in one file. The local copy is still there for offline use and for the clusters.
+
+* 12. Clusters
+- *Code and notes*: =git clone= from GitHub like any machine (ssh key or a fine-grained token).
+  Add the clone to =~/.config/sync-all/repos= with mode =pull= if you only read it there. For
+  clusters without internet, keep the pattern in your org-roam note /Push_to_github_from_offline_remote/.
+- *Time*: there is no Taskwarrior sync on a cluster (it cannot join the tailnet). Write a line in
+  =logs/inbox.md= (=time 09:00-11:30 code bcb run=) and commit it. =sync-all= on a laptop files it
+  into Timewarrior.
+- *Data to the home drive*: list the folders in =~/.config/home-server/clusters=, one line each:
+  #+begin_example
+  bcb   bcb_cluster   /home/hlima/projects
+  bcb   bcb_cluster   /scratch/hlima/results
+  #+end_example
+  Then run =sh ~/sys_org/home_hub/bin/backup-clusters.sh=. On the home laptop it copies straight to
+  =…/Toshiba_4T/backups/clusters/<name>/=. Files deleted on the cluster are kept aside under
+  =.deleted/<date>/=, not lost. Many clusters accept logins only from the institute network. For
+  those, run the same command on the work laptop: it copies to =~/cluster-mirror/=, and that
+  laptop's restic backup carries the copy to the drive. The =Host= entries (with =ProxyJump= where
+  a cluster needs it) go in =~/.ssh/config= on whichever machine runs it.
+
+* 13. The daily rhythm
+#+begin_src sh
+sync-all        # when you sit down at a laptop, and when you get up
+#+end_src
+=sync-all= runs =bin/sync.sh= for the study system (the inbox, the commit and the push), then
+pulls, commits and pushes the lectures, org-roam (=.org= and =.bib= files only, so LaTeX debris
+stays out) and Timewarrior, then runs =task sync=. It prints /Needs attention/ when something
+stops, for example a rebase in org-roam where you edited the same paragraph on both laptops.
+
+Once a month, at the monthly review:
+- =sh ~/sys_org/home_hub/bin/backup.sh snapshots= on each laptop. Both lists should show recent dates.
+- Restore one file into =/tmp= and open it:
+  =sh ~/sys_org/home_hub/bin/backup.sh restore latest ~/learning/study-system/journal.org /tmp/r=.
+- =systemctl --user --failed= on the home laptop.
+
+* 14. When something is off
+| Symptom                                   | Look at                                                                                                    |
+|-------------------------------------------+------------------------------------------------------------------------------------------------------------|
+| Phone: page does not load                  | Tailscale app on? =tailscale serve status= and =systemctl --user status lectures-web study-web= at home     |
+| Lectures page loads, progress does not save | =LIBRARY_HOSTS= in =~/.config/systemd/user/lectures-web.service= must be the exact tailnet name            |
+| Study site out of date                     | =~/srv/build-site.log= on the home laptop; =~/srv/study-system= must have no local edits                   |
+| =task sync= fails                          | =systemctl --user status tasksync= at home; =task show sync= must be the same on both laptops              |
+| backup says "not reachable"                | =ssh home true= from the work laptop; =mountpoint /run/media/archx/Toshiba_4T= at home                    |
+| a pull stops in =~/.timewarrior=           | the driver is not registered in that clone: =python3 ~/sys_org/home_hub/bin/timew-merge.py install=, then =git rebase --continue= |

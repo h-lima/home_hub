@@ -1,0 +1,146 @@
+#+TITLE: The home_hub helpers: what each one does
+#+DATE: 2026-09-25
+#+STARTUP: showall
+
+* Where to start
+Read and do things in this order:
+1. *[[file:runbook.org][runbook.org]]*: *the step-by-step runbook. Start here, with phase A.* Each
+   step says where to run it, what to type, why, how to check it and how to undo it. Where a
+   helper below does the same thing, the step names it.
+2. [[file:overview.org][overview.org]]: the overview: what goes where, and the short version of the same steps.
+3. [[file:recovery.org][recovery.org]]: backups and recovery: what is protected, why restic, and what to do
+   when something breaks (scenarios 1-7). Read it once after phase J.
+4. This file: what each helper does, so you are never running something you don't understand.
+
+Every helper also explains itself in its first lines: =head -30 <helper>=. None of them deletes your
+data. The ones that replace a folder (=~/.task=, =~/.timewarrior=) are not helpers: those are
+runbook steps that you type yourself, after a safety snapshot.
+
+* The helpers at a glance
+| Helper                | Runs on            | When                                         | Runbook step(s)  | Changes                                                                     |
+|-----------------------+--------------------+----------------------------------------------+------------------+-----------------------------------------------------------------------------|
+| =safety-snapshot.sh=  | both laptops       | before any risky step; whenever unsure       | A1, A3, G, H     | only adds =~/safety/<time>/= (+ a copy on the drive)                        |
+| =tw-merge-exports.py= | home laptop        | once (and in recovery scenario 7)            | G5               | nothing: reads two JSON files, prints a merged one                          |
+| =timew-merge.py=      | both laptops       | =dirs=: once · =install=: once per clone · =driver=: git calls it | H2, H3, H4 | =dirs= writes a new folder · =install= adds 2 lines of git config + =.gitattributes= |
+| =config.sh=           | —                  | read by the other shell helpers              | values sheet     | nothing (settings: names, paths, ports)                                     |
+| =install-home.sh=     | home laptop        | once, then after changing settings           | F–J (shortcut)   | user services, tailscale serve, =~/.taskrc.sync=, =~/srv= clones, backup install |
+| =install-laptop.sh=   | work laptop        | once                                         | G7, J5–J7 (shortcut) | copies =~/.taskrc.sync=, merge drivers, backup + task-keep timers, =sync-all= link |
+| =home-refresh.sh=     | home laptop        | every 10 minutes (timer)                     | I6               | commits phone progress in =~/srv/lectures=, rebuilds the site, syncs time/tasks |
+| =backup-system.sh=    | home laptop (root) | daily 03:30; prune on Sundays; check monthly (timers) | J3, J4      | writes snapshots to the drive, a manifest in =/var/backups=                 |
+| =backup.sh=           | work laptop        | daily 13:15 (timer)                          | J5, J6           | writes snapshots of =/home/hlima= to the drive over SSH                     |
+| =task-keep.sh=        | both laptops       | 03:00 and 12:45 (timer)                      | J7               | adds =~/backups/tasks/tasks-DATE.json= (+ server DB copy at home)            |
+| =backup-clusters.sh=  | whichever machine can log in to the cluster | when you want (by hand)  | K2               | copies cluster folders to the drive (or =~/cluster-mirror=)                 |
+| =sync-all.sh=      | every machine      | when you sit down and when you get up        | L1               | pull/commit/push of your repositories, =task sync=                          |
+Two more helpers live with the lectures, not here:
+- =~/learning/lectures/main_lectures/tools/progress-merge.py= merges reading progress (step F3).
+- =~/learning/lectures/main_lectures/html-books/serve.py= serves the library. It now accepts
+  =LIBRARY_HOSTS=.
+
+* Each helper, explained
+** safety-snapshot.sh: a verified copy before anything risky
+*Does:* exports every task to JSON, then imports that export into a throw-away Taskwarrior and checks
+the count is the same. That is the proof the export can bring your tasks back. It also archives
+=~/.task= exactly as it is, your =~/.taskrc= and the files it includes, the Timewarrior data (as an
+export and as an archive), and the study system plus org-roam, including edits you have not
+committed. It writes checksums, then copies the whole folder to =backups/safety/<host>/= on the
+Toshiba drive: directly at home, or over SSH from the work laptop.
+*Use:* =sh safety-snapshot.sh=. It must end with =SAFETY SNAPSHOT COMPLETE=; any failed check stops
+it with "INCOMPLETE". =--list= shows the snapshots taken so far.
+*Undo a mistake with it:* =mv ~/.task ~/.task.broken && tar xzf S/dot-task.tar.gz -C ~= (with the
+Taskwarrior version in =S/versions.txt=), or =task rc.hooks=0 import S/task-export.json= into any version.
+*By hand:* runbook A1 lists the same commands.
+
+** tw-merge-exports.py: one task list from two diverged laptops
+*Does:* reads two =task export= files and matches the tasks by UUID. A task on one side only is
+kept. A task on both sides with different content keeps the copy with the newer =modified= time;
+annotations from both sides are kept. It prints the merged JSON, and a report of the tasks that
+differed on both sides, for you to check after importing.
+*Use:* =python3 tw-merge-exports.py tw-home.json tw-work.json > tw-merged.json=.
+*Touches:* nothing. It only reads the two files.
+*Without it:* =task import= overwrites a task with the same UUID, so the file you import last wins
+for every shared task (runbook G5).
+
+** timew-merge.py: Timewarrior data that git can merge
+Three modes:
+- =dirs HOME WORK OUT=: once, to join the two laptops' diverged data. It keeps every interval,
+  drops duplicates, sorts by time, and lists overlapping intervals (usually the same session logged
+  twice) for you to check with =timew summary :ids=.
+- =install [repo]=: once per clone of =~/.timewarrior=. It tells git to use the =driver= mode for
+  =data/*.data= (=git config merge.timew.driver …= and a line in =.gitattributes=), and ignores
+  =undo.data=.
+- =driver=: git calls this itself during a pull when both laptops logged time. It does a three-way
+  merge line by line: additions from both sides are kept, and a deletion or change on either side
+  wins (so =timew delete=, =timew modify= and stopping a running interval all carry over).
+*By hand:* runbook H2-H4 show the git config lines, and a =sort -u= alternative for =dirs=.
+
+** config.sh: the settings, in one place
+Holds the home laptop's tailnet name (=HOME_NODE=home=), your user there (=archx=), the drive
+(=/run/media/archx/Toshiba_4T=), the GitHub account, and the ports. Any line can be overridden per
+machine in =~/.config/home-server.conf=. The other shell helpers read it; nothing runs it directly.
+
+** install-home.sh: the home laptop's services, in one go
+*Does* (and it is safe to run again):
+checks the tools (Taskwarrior must be 3.x) → =loginctl enable-linger= → clones =~/srv/study-system=
+and =~/srv/lectures= from GitHub (read-only serving copies) → registers the merge drivers → creates
+the Taskwarrior sync credentials and =~/.taskrc.sync= → writes and starts the user services
+=lectures-web=, =study-web=, =tasksync=, =home-refresh.timer= and =task-keep.timer= →
+=tailscale serve= on ports 443, 8443 and 10000 → installs the system backup (=backup-system.sh install=,
+asks for sudo) → prints the phone URLs.
+*By hand:* runbook G1-G4, I1-I6, J3 and J7 are exactly these steps.
+
+** install-laptop.sh: the work laptop joins
+*Does:* checks =ssh home= works → copies =~/.taskrc.sync= from the home laptop and includes it in
+=~/.taskrc= (only if Taskwarrior is 3.x) → registers the merge drivers → creates this laptop's backup
+repository on the drive and the daily timer → the =task-keep= timer → links =sync-all= into
+=~/.local/bin=.
+It does *not* touch =~/.task= or =~/.timewarrior=. You replace those yourself in G7 and H4, after a
+safety snapshot.
+
+** home-refresh.sh: keeps the phone's pages fresh (home laptop, every 10 minutes)
+In =~/srv/lectures=: commits =progress.json= if you read something on the phone, then pulls and
+pushes. In =~/srv/study-system=: pulls, and rebuilds the site when new commits arrived (or hourly,
+for the dashboards). In =~/.timewarrior=: commits, pulls and pushes. Finally, =task sync=.
+It never touches =~/learning/…=, the copies you edit.
+*Look at it:* =journalctl --user -u home-refresh -n 20=.
+
+** backup-system.sh: the whole home laptop, restorable (root)
+- =sudo sh backup-system.sh install= copies the script to =/usr/local/sbin/backup-system= (so that no
+  file in your home folder runs as root). It writes =/etc/restic/backup-system.conf= (what and
+  where) and =/etc/restic/excludes= (what never), and three system timers: daily backup, Sunday
+  prune + check, monthly 10% read-back. It also turns off the per-user backup timer on this laptop.
+- =sudo backup-system run= writes the *manifest* to =/var/backups/system-manifest/=: packages
+  (official and AUR), partition tables, disk UUIDs, fstab, boot loader, services, user/uid and
+  SMART health. Then it snapshots every local system filesystem plus =/mnt/StorageHDD=
+  (=--one-file-system=, so =/proc=, =/run= and the backup drive are never walked), and refreshes
+  =backups/RECOVERY/= on the drive (the restic program, the manifest and the recovery guide,
+  readable without restic).
+- =snapshots=, =manifest=, =prune=, =check-all=: the names say what they do.
+If =/mnt/StorageHDD= is not mounted, the run warns and leaves it out. It never backs up an empty
+mount point as if it were your data.
+
+** backup.sh: the work laptop's home folder
+=sh backup.sh= saves =apt-mark showmanual= (your installed software) to =~/.config/pkglist-apt.txt=,
+then snapshots =/home/hlima= to =restic/ubuntu-hp= on the drive, over SFTP to =home=. When the home
+laptop or the drive cannot be reached, it says so and exits quietly, and the timer catches up
+later. Other subcommands: =init=, =snapshots=, =restore <snap> <path> <dir>=, =install-timer=. On the
+home laptop it refuses, and points you to =backup-system=.
+
+** task-keep.sh: tasks as plain JSON, twice a day
+Writes =~/backups/tasks/tasks-DATE.json= (a full =task export=, kept 90 days). On the home laptop
+it also writes =server-DATE.sqlite3=, a consistent copy of the sync server's database made with
+SQLite's own backup command (kept 14 days). If an export ever comes back empty, it keeps the old
+files and warns, so a broken Taskwarrior never replaces good copies with an empty one. What to do
+with these files: recovery guide, scenario 7.
+
+** backup-clusters.sh: cluster data to the drive
+Reads =~/.config/home-server/clusters= (lines of =name ssh-host remote-path=) and =rsync=s each folder.
+On the home laptop the copy goes straight to =backups/clusters/<name>/=, and files deleted on the
+cluster are kept in =.deleted/<date>/=. On any other laptop it goes to =~/cluster-mirror/=, which
+that laptop's backup then carries to the drive. It only reads from the clusters.
+
+** sync-all.sh: the one command of the daily rhythm
+Runs =bin/sync.sh= for the study system, then pull, commit and push for the lectures, org-roam (only
+=.org= and =.bib= files) and =~/.timewarrior=, then =task sync=. It skips anything that does not
+exist on this machine, so the same command works on a cluster. =-n= shows what it would do. It ends
+with "All synced." or "Needs attention: …", naming the repository to look at. The list of
+repositories can be changed in =~/.config/sync-all/repos=.
