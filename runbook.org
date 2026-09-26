@@ -23,19 +23,19 @@ You will need these values again and again. Fill them in here (edit this file) t
 | What                                    | Value                     | Where it comes from                           |
 |-----------------------------------------+---------------------------+-----------------------------------------------|
 | Home laptop tailnet name                | =home=                    | step C3                                       |
-| Tailnet domain                          | =tail?????.ts.net=        | admin console → DNS (step C1)                 |
-| Full home name (HOME_FQDN below)        | =home.tail?????.ts.net=   | name + domain                                 |
-| Drive partition                         | =/dev/sd?1=               | =lsblk -f= (step B3)                          |
+| Tailnet domain                          | =tail53b947.ts.net=       | admin console → DNS (step C1)                 |
+| Full home name (HOME_FQDN below)        | =home.tail53b947.ts.net=  | name + domain                                 |
+| Drive partition                         | =/dev/sdc1=               | =lsblk -f= (step B3)                          |
 | Drive UUID                              |                           | =lsblk -f=                                    |
 | Drive filesystem                        | ext4 / ntfs / exfat       | =lsblk -f=                                    |
-| Taskwarrior client id                   |                           | step G1                                       |
+| Taskwarrior client id                   |  df27936d-3f56-46d6-94f0-f7fc898bfcb2 | step G1                                       |
 | Taskwarrior encryption secret           | (password manager only)   | step G1                                       |
 | restic password                         | (password manager only)   | step J2                                       |
 | Old Taskwarrior versions                | home: ____ work: ____     | step A1 / A3                                  |
 In the commands below, replace =HOME_FQDN= with the full home name. You can also set it once per
 shell with =export HOME_FQDN=home.tail12345.ts.net=.
 
-* Phase A — Safety first: verified copies before anything changes [0/5]
+* Phase A — Safety first: verified copies before anything changes [4/5]
 Nothing in this phase changes your data. It only makes copies and *proves* they are usable. From
 here until the end of phase H, do not add tasks or track time, and do not run any step marked
 *CHECKPOINT* unless you have a safety snapshot from the same day.
@@ -44,7 +44,7 @@ Your current state: the home laptop has *Taskwarrior 3* (Arch), and the work lap
 *Taskwarrior 2.6* (Ubuntu). Their databases are different formats. The one thing that carries tasks
 from 2.6 to 3 is the JSON export, and that is why it is made and tested first.
 
-** TODO A1 · =WORK= Safety snapshot of the work laptop
+** DONE A1 · =WORK= Safety snapshot of the work laptop
 The helper does all of the steps listed after it, and stops loudly if any check fails:
 #+begin_src sh
 sh ~/sys_org/home_hub/bin/safety-snapshot.sh
@@ -69,7 +69,7 @@ tar czf $S/notes.tar.gz -C ~ --exclude=.venv --exclude=site learning/study-syste
 throw-away database (=rc.data.location= points away from your real one) proves that it can be,
 without touching =~/.task=.
 
-** TODO A2 · =WORK= Put a second copy off the laptop
+** DONE A2 · =WORK= Put a second copy off the laptop
 The Toshiba drive cannot be reached from the work laptop until phases B, C and E are done. Until
 then, copy =~/safety= to a USB stick, or to the home laptop over the home Wi-Fi:
 #+begin_src sh
@@ -77,7 +77,7 @@ cp -a ~/safety /media/hlima/<usb-stick>/          # or:
 scp -r ~/safety archx@<home-laptop-LAN-IP>:safety-from-work    # ip -4 addr on the home laptop shows it
 #+end_src
 
-** TODO A3 · =HOME= Safety snapshot of the home laptop
+** DONE A3 · =HOME= Safety snapshot of the home laptop
 The same helper, from this laptop's copy of =~/sys_org/home_hub=, or the commands of A1 by hand.
 Phase F clones =home_hub= here; until then, copy the folder over (USB stick or =scp=), or type A1's
 commands. Here =task --version= shows 3.x, and that is fine: the export format is the same.
@@ -97,7 +97,7 @@ This works only with the Taskwarrior version recorded in =S/versions.txt=. On th
 means 2.6: before D3 it is still installed. After D3, undo the build first (D3's /Undo/ line).
 Alternatively, import =S/task-export.json= into any version with =task rc.hooks=0 import=.
 
-** TODO A5 · =WORK= Commit and push the git repositories, and put home_hub on GitHub
+** DONE A5 · =WORK= Commit and push the git repositories, and put home_hub on GitHub
 #+begin_src sh
 cd ~/learning/study-system && git status && sh bin/sync.sh
 cd ~/sys_org/org_roam       && git status && git add -u && git add '*.org' && git commit -m "before home hub" ; git push
@@ -113,8 +113,8 @@ git remote add origin git@github.com:h-lima/home_hub.git && git push -u origin m
 *Why.* The home laptop will clone from GitHub in phase F, so GitHub must hold your latest work.
 *Check.* =git status= says "nothing to commit" and "up to date with 'origin/master'" in both.
 
-* Phase B — Home laptop: always on, drive always mounted [0/6]
-** TODO B1 · =HOME= Never sleep, even with the lid closed
+* Phase B — Home laptop: always on, drive always mounted [6/6]
+** DONE B1 · =HOME= Never sleep, even with the lid closed
 #+begin_src sh
 sudo mkdir -p /etc/systemd/logind.conf.d
 sudoedit /etc/systemd/logind.conf.d/10-server.conf
@@ -138,7 +138,7 @@ laptop once phase C is done. Right now, =systemctl status sleep.target= says "ma
 *Undo.* =sudo systemctl unmask sleep.target suspend.target hibernate.target hybrid-sleep.target= and
 delete the file.
 
-** TODO B2 · =HOME= Understand how the drive is mounted today
+** DONE B2 · =HOME= Understand how the drive is mounted today
 #+begin_src sh
 findmnt /run/media/archx/Toshiba_4T
 #+end_src
@@ -149,7 +149,7 @@ add one for it too in B4, with =nofail=.
 nobody is logged in, for example after a reboot, the drive is not mounted and a backup would
 fail. An entry in =/etc/fstab= mounts it at boot instead.
 
-** TODO B3 · =HOME= Identify the partition
+** DONE B3 · =HOME= Identify the partition
 #+begin_src sh
 lsblk -f
 #+end_src
@@ -157,7 +157,7 @@ Find the line whose MOUNTPOINTS is =/run/media/archx/Toshiba_4T=, or whose LABEL
 Copy its NAME (for example =sdb1=), FSTYPE and UUID into the values sheet. Use the UUID, never
 =/dev/sdb1=: the sd letters can change between boots and between USB ports.
 
-** TODO B4 · =HOME= Edit /etc/fstab safely
+** DONE B4 · =HOME= Edit /etc/fstab safely
 1. Make a backup:
    #+begin_src sh
    sudo cp /etc/fstab /etc/fstab.bak-2026-09-25
@@ -196,7 +196,7 @@ Copy its NAME (for example =sdb1=), FSTYPE and UUID into the values sheet. Use t
 ejecting it. Run =sudo pacman -S ntfs-3g && sudo ntfsfix -d /dev/sdb1=, then mount again.
 *Undo.* =sudo cp /etc/fstab.bak-2026-09-25 /etc/fstab && sudo systemctl daemon-reload=.
 
-** TODO B5 · =HOME= Make the backup folder and check you can write to it
+** DONE B5 · =HOME= Make the backup folder and check you can write to it
 #+begin_src sh
 sudo mkdir -p /run/media/archx/Toshiba_4T/backups/{restic,clusters}
 sudo chown -R archx: /run/media/archx/Toshiba_4T/backups       # ext4 only; NTFS/exFAT already belong to you
@@ -204,7 +204,7 @@ touch /run/media/archx/Toshiba_4T/backups/.write-test && rm /run/media/archx/Tos
 df -h /run/media/archx/Toshiba_4T
 #+end_src
 
-** TODO B6 · =HOME= SSH server (for now, passwords still allowed)
+** DONE B6 · =HOME= SSH server (for now, passwords still allowed)
 #+begin_src sh
 sudo pacman -S --needed openssh
 sudo systemctl enable --now sshd
@@ -213,20 +213,20 @@ systemctl status sshd --no-pager | head -3
 *Why.* The work laptop sends its backups to the drive over SSH (SFTP), and later copies a settings
 file this way too. In step E3 you turn password logins off.
 
-* Phase C — Tailscale on every device [0/6]
-** TODO C1 · Admin console (browser, any device)
+* Phase C — Tailscale on every device [5/6]
+** DONE C1 · Admin console (browser, any device)
 Log in at login.tailscale.com. Under *DNS*: turn on *MagicDNS*, and under /HTTPS Certificates/
 click *Enable HTTPS*. Write the tailnet domain (=tail?????.ts.net=) in the values sheet.
 *Why.* MagicDNS lets every device reach the home laptop as =home=. HTTPS gives the phone a real
 certificate for =https://home.tail?????.ts.net=, so the browser shows no warnings.
 
-** TODO C2 · =HOME= Install
+** DONE C2 · =HOME= Install
 #+begin_src sh
 sudo pacman -S --needed tailscale
 sudo systemctl enable --now tailscaled
 #+end_src
 
-** TODO C3 · =HOME= Join, and name it "home"
+** DONE C3 · =HOME= Join, and name it "home"
 #+begin_src sh
 sudo tailscale up --hostname=home
 sudo tailscale set --operator=$USER      # lets you run `tailscale serve` without sudo
@@ -247,18 +247,18 @@ Try it once on the home Wi-Fi and once at work. At work, "via DERP(…)" means t
 and the traffic goes through Tailscale's relay. That is slower but works. Check that your
 employer's IT policy allows Tailscale on the work laptop.
 
-** TODO C5 · =PHONE= Phone
+** DONE C5 · =PHONE= Phone
 Install *Tailscale* from Google Play and log in with the same account. Then open the app and check
 that =home= is listed and says "Connected".
 
-** TODO C6 · =WORK= Name resolution check
+** DONE C6 · =WORK= Name resolution check
 #+begin_src sh
-getent hosts home ; getent hosts HOME_FQDN
+getent hosts home ; getent hosts home.tail53b947.ts.net
 #+end_src
 Both print a =100.x.y.z= address.
 
-* Phase D — Software [0/4]
-** TODO D1 · =HOME= Packages (Arch)
+* Phase D — Software [4/4]
+** DONE D1 · =HOME= Packages (Arch)
 Do step A3 first. Your home laptop already has Taskwarrior 3, so the upgrade changes nothing
 about its format, but a snapshot costs a minute.
 #+begin_src sh
@@ -275,12 +275,12 @@ cd ~/src/tcss && cargo build --release
 sudo install -m755 target/release/taskchampion-sync-server /usr/local/bin/
 #+end_src
 
-** TODO D2 · =WORK= Packages (Ubuntu)
+** DONE D2 · =WORK= Packages (Ubuntu)
 #+begin_src sh
 sudo apt update && sudo apt install restic rsync gh cmake g++ uuid-dev
 #+end_src
 
-** TODO D3 · =WORK= Build Taskwarrior 3 (Ubuntu only has 2.6)
+** DONE D3 · =WORK= Build Taskwarrior 3 (Ubuntu only has 2.6)
 *CHECKPOINT*: A1 and A2 must be done, and =~/safety/…/task-export.ok= must exist. After this step,
 =task= on this laptop cannot read =~/.task= any more (it is in the 2.6 format), and your tasks exist
 only in the export and in the tarball until G7.
@@ -296,10 +296,11 @@ sudo apt remove taskwarrior
 sudo cmake --install build && hash -r
 task --version                                     # 3.x
 #+end_src
+
 *Why.* Both ends of a sync must speak the same version. The build puts =task= in =/usr/local/bin=.
 *Undo.* =sudo xargs rm < build/install_manifest.txt && sudo apt install taskwarrior=.
 
-** TODO D4 · =HOME= The /home/hlima path
+** DONE D4 · =HOME= The /home/hlima path
 #+begin_src sh
 sudo ln -s /home/archx /home/hlima && ls /home/hlima/
 #+end_src
@@ -307,14 +308,14 @@ sudo ln -s /home/archx /home/hlima && ls /home/hlima/
 lectures, the =include= line in =~/.taskrc=). With this link those paths resolve on both laptops.
 There is no =hlima= user on the home laptop, so nothing clashes.
 
-* Phase E — SSH from the work laptop to the home laptop [0/3]
-** TODO E1 · =WORK= Key and copy it
+* Phase E — SSH from the work laptop to the home laptop [2/3]
+** DONE E1 · =WORK= Key and copy it
 #+begin_src sh
 [ -f ~/.ssh/id_ed25519 ] || ssh-keygen -t ed25519 -C "hlima@ubuntu-hp"
-ssh-copy-id archx@home          # asks for the home laptop's password this one time
+ssh-copy-id -i ~/.ssh/id_ed25519.pub -o IdentitiesOnly=yes -p 2255 archx@home # asks for the home laptop's password this one time
 #+end_src
 
-** TODO E2 · =WORK= A short name
+** DONE E2 · =WORK= A short name
 Add this to =~/.ssh/config=:
 #+begin_example
 Host home
@@ -340,14 +341,33 @@ still works.
 *Why plain SSH and not Tailscale SSH.* Tailscale SSH can ask you to log in again in a browser every
 few hours, which would stop the unattended backups.
 
-* Phase F — Everything on GitHub, cloned at the same paths [0/5]
-** TODO F1 · =WORK= Log in to GitHub from the command line
+Add keys to mobile devices in termux
+#+begin_src
+pkg install openssh
+ssh-keygen -t ed25519 -C "phone-termux"      # set a passphrase: phones get lost
+cat ~/.ssh/id_ed25519.pub                    # one line starting with ssh-ed25519 … phone-termux
+ssh home "echo 'ssh-ed25519 AAAA…your line… phone-termux' >> ~/.ssh/authorized_keys"
+#+end_src
+Add this to .ssh /config
+#+begin_src
+Host home
+  HostName <tailnet ip 4>
+  User archx
+  Port 2255
+#+end_src
+
+tailscale netcheck          # "UDP: false" means only the relay path works; that is fine
+tailscale ping home         # "via DERP(…)" = through the relay, still works
+ssh home true && echo ok    # the Tailscale path, port 2255, no router involved
+
+* Phase F — Everything on GitHub, cloned at the same paths [5/5]
+** DONE F1 · =WORK= Log in to GitHub from the command line
 #+begin_src sh
 gh auth login          # GitHub.com → SSH → your existing key
 gh auth status
 #+end_src
 
-** TODO F2 · =WORK= Turn the lectures into a repository
+** DONE F2 · =WORK= Turn the lectures into a repository
 #+begin_src sh
 cd ~/learning/lectures
 find . -name .git -type d                  # must print nothing
@@ -360,7 +380,7 @@ gh repo create h-lima/lectures --private --source . --push
 #+end_src
 *Check.* =gh repo view h-lima/lectures --json visibility,diskUsage= shows "PRIVATE".
 
-** TODO F3 · =WORK= Tell git how to merge reading progress (lectures)
+** DONE F3 · =WORK= Tell git how to merge reading progress (lectures)
 Two machines can both change =main_lectures/html-books/progress.json=, and a normal git merge
 would conflict. The line in =.gitattributes= (already there) routes that file to a small program.
 Git only runs programs that you register yourself, in each clone:
@@ -372,7 +392,7 @@ git config --get merge.library-progress.driver
 #+end_src
 (This is what =python3 main_lectures/tools/progress-merge.py install= does.)
 
-** TODO F4 · =HOME= Clone the three repositories
+** DONE F4 · =HOME= Clone the three repositories
 #+begin_src sh
 gh auth login
 mkdir -p ~/learning ~/sys_org
@@ -383,19 +403,19 @@ git clone git@github.com:h-lima/home_hub.git     ~/sys_org/home_hub
 #+end_src
 Then do step F3 again, on the home laptop, in =~/learning/lectures=.
 
-** TODO F5 · =HOME= Study system environment
+** DONE F5 · =HOME= Study system environment
 #+begin_src sh
 cd ~/learning/study-system && sh bin/setup.sh --link && learn progress | head
 #+end_src
 
-* Phase G — Taskwarrior: one merged database, synced through home [0/7]
+* Phase G — Taskwarrior: one merged database, synced through home [7/7]
 *CHECKPOINT before this phase*: take a fresh safety snapshot on *both* laptops (A1 and A3). By now
 the helper reaches the Toshiba drive from both, and says "copied to the drive". Use the exports in
 those new snapshots as =tw-work.json= / =tw-home.json= below:
 =cp ~/safety/<newest>/task-export.json ~/tw-work.json= (work) and =… ~/tw-home.json= (home).
 On the work laptop, take the snapshot *before* D3 if D3 is not done yet, because a 2.6 database can
 only be exported by 2.6.
-** TODO G1 · =HOME= Make the sync credentials
+** DONE G1 · =HOME= Make the sync credentials
 #+begin_src sh
 mkdir -p ~/.config/home-server
 uuidgen | tee ~/.config/home-server/task-client-id          # → values sheet
@@ -405,7 +425,7 @@ cat ~/.config/home-server/task-secret                       # → password manag
 *Why.* The client id names your task set on the server. The secret encrypts every task *before* it
 leaves a laptop, so the server stores only data it cannot read.
 
-** TODO G2 · =HOME= Let user services run without a login
+** DONE G2 · =HOME= Let user services run without a login
 #+begin_src sh
 sudo loginctl enable-linger archx
 loginctl show-user archx -p Linger       # Linger=yes
@@ -413,7 +433,7 @@ loginctl show-user archx -p Linger       # Linger=yes
 *Why.* Without this, your =systemctl --user= services stop when you log out and do not start after a
 reboot until you log in.
 
-** TODO G3 · =HOME= The sync server as a service
+** DONE G3 · =HOME= The sync server as a service
 #+begin_src sh
 mkdir -p ~/.config/systemd/user ~/.local/share/taskchampion-sync-server
 $EDITOR ~/.config/systemd/user/tasksync.service
@@ -439,14 +459,14 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/   # any number, 
 *Why 127.0.0.1.* The server is never exposed on the network directly. Tailscale publishes it in the
 next step, with HTTPS, and only to your own devices.
 
-** TODO G4 · =HOME= Publish it to the tailnet
+** DONE G4 · =HOME= Publish it to the tailnet
 #+begin_src sh
 tailscale serve --bg --https=10000 http://127.0.0.1:8080
 tailscale serve status
 curl -s -o /dev/null -w '%{http_code}\n' https://HOME_FQDN:10000/
 #+end_src
 
-** TODO G5 · =HOME= Import the merged tasks into a fresh database
+** DONE G5 · =HOME= Import the merged tasks into a fresh database
 *CHECKPOINT*: a safety snapshot from today, copied to the drive. This step moves =~/.task= aside.
 1. Bring the work export over. On the work laptop: =scp ~/tw-work.json home:=
 2. Merge the two exports. Tasks are matched by UUID, and when a task exists in both with different
@@ -470,7 +490,7 @@ curl -s -o /dev/null -w '%{http_code}\n' https://HOME_FQDN:10000/
    *Check.* =task count= equals the "tasks" number in the merge report. =task study= shows this
    week's study tasks, because =~/.taskrc= and its =include …/study.taskrc= line were not touched.
 
-** TODO G6 · =HOME= Point Taskwarrior at the server and upload
+** DONE G6 · =HOME= Point Taskwarrior at the server and upload
 #+begin_src sh
 (umask 077; $EDITOR ~/.taskrc.sync)
 #+end_src
@@ -487,7 +507,7 @@ task sync          # second: "Sync successful" and nothing to do
 *Why a separate file.* =~/.taskrc= may end up in a dotfiles repository one day. The secret must
 never be there.
 
-** TODO G7 · =WORK= The work laptop joins
+** DONE G7 · =WORK= The work laptop joins
 *CHECKPOINT*: a safety snapshot from today (made with 2.6, before D3), and G5/G6 done at home, so
 the server holds every task. The work laptop starts from an empty database and receives everything
 from the server.
@@ -501,11 +521,11 @@ task sync && task count         # the same count as on the home laptop
 *Check.* Add a test task on one laptop (=task add sync test=), run =task sync= on both laptops, and
 the task shows up on the other one. Then =task <id> delete= and sync again.
 
-* Phase H — Timewarrior in git [0/5]
+* Phase H — Timewarrior in git [5/5]
 *CHECKPOINT before this phase*: safety snapshots from today on both laptops (they contain
 =timewarrior.tar.gz= and =timew-export.json=). To roll back one laptop:
 =mv ~/.timewarrior ~/.timewarrior.broken && tar xzf S/timewarrior.tar.gz -C ~=.
-** TODO H1 · =HOME= One data folder, in the old location
+** DONE H1 · =HOME= One data folder, in the old location
 If the home laptop uses =~/.local/share/timewarrior=, move it:
 #+begin_src sh
 mv ~/.local/share/timewarrior ~/.timewarrior
@@ -515,7 +535,7 @@ timew summary :week          # still shows your week
 #+end_src
 *Why.* A single path on both laptops makes the git repository and every script identical.
 
-** TODO H2 · =HOME= Merge the work laptop's intervals in
+** DONE H2 · =HOME= Merge the work laptop's intervals in
 On the work laptop: =scp -r ~/.timewarrior/data home:tw-work-data=. Then on the home laptop:
 #+begin_src sh
 python3 ~/sys_org/home_hub/bin/timew-merge.py dirs ~/.timewarrior/data ~/tw-work-data ~/tw-merged-data
@@ -532,7 +552,7 @@ timew summary :month :ids          # find the overlaps it listed; remove the dup
 =sort -u home/2026-09.data work/2026-09.data > merged/2026-09.data= for each month does the same
 job, but it does not list the overlaps for you.
 
-** TODO H3 · =HOME= Make it a repository
+** DONE H3 · =HOME= Make it a repository
 #+begin_src sh
 cd ~/.timewarrior
 git init -b master
@@ -548,7 +568,7 @@ helper instead of producing a conflict. It keeps every line either side added, a
 either side deleted or changed since the last common version, so =timew delete=, =timew modify= and
 closing a running interval all carry over. Then it sorts the file by time.
 
-** TODO H4 · =WORK= Replace the work laptop's folder with the clone
+** DONE H4 · =WORK= Replace the work laptop's folder with the clone
 #+begin_src sh
 mv ~/.timewarrior ~/.timewarrior.v1          # kept, besides the safety snapshot
 git clone git@github.com:h-lima/timewarrior.git ~/.timewarrior
@@ -558,14 +578,14 @@ git config merge.timew.driver "python3 $HOME/sys_org/home_hub/bin/timew-merge.py
 timew summary :month          # the same hours as on the home laptop
 #+end_src
 
-** TODO H5 · =BOTH= · Try the merge once, on purpose
+** DONE H5 · =BOTH= · Try the merge once, on purpose
 Track five minutes on each laptop (=timew start test= … =timew stop=). Then commit and pull/push
 =~/.timewarrior= on the first laptop, and do the same on the second (=git add -A && git commit -m t
 && git pull --rebase && git push=). There is no conflict, and both intervals are on both laptops.
 Remove them with =timew delete @1= and sync again.
 
-* Phase I — The pages for your phone [0/7]
-** TODO I1 · =HOME= Serving clones, separate from the copies you edit
+* Phase I — The pages for your phone [7/7]
+** DONE I1 · =HOME= Serving clones, separate from the copies you edit
 #+begin_src sh
 mkdir -p ~/srv
 git clone git@github.com:h-lima/study_system.git ~/srv/study-system
@@ -577,7 +597,7 @@ In =~/srv/lectures=, register the progress driver (step F3 again).
 =~/learning/…= while you were in the middle of an edit, it would get in your way. You never edit
 =~/srv=.
 
-** TODO I2 · =HOME= Lecture library service
+** DONE I2 · =HOME= Lecture library service
 =$EDITOR ~/.config/systemd/user/lectures-web.service=:
 #+begin_example
 [Unit]
@@ -595,7 +615,7 @@ WantedBy=default.target
 that a hostile website cannot reach it through your browser. This line allows your own tailnet name
 as well.
 
-** TODO I3 · =HOME= Study site service
+** DONE I3 · =HOME= Study site service
 =$EDITOR ~/.config/systemd/user/study-web.service=:
 #+begin_example
 [Unit]
@@ -614,20 +634,20 @@ systemctl --user enable --now lectures-web study-web
 curl -sI http://127.0.0.1:8765/ | head -1 ; curl -sI http://127.0.0.1:8766/ | head -1   # 302 / 200
 #+end_src
 
-** TODO I4 · =HOME= Publish both
+** DONE I4 · =HOME= Publish both
 #+begin_src sh
 tailscale serve --bg --https=443  http://127.0.0.1:8765
 tailscale serve --bg --https=8443 http://127.0.0.1:8766
 tailscale serve status            # three entries: 443, 8443, 10000
 #+end_src
 
-** TODO I5 · =PHONE= Open them and pin them
+** DONE I5 · =PHONE= Open them and pin them
 In Chrome on the phone, open =https://HOME_FQDN/= (lectures) and
 =https://HOME_FQDN:8443/notes/week.html= (the week). For each one, choose ⋮ → /Add to Home screen/.
 Mark a lecture as read on the phone, then run
 =git -C ~/srv/lectures status= on the home laptop: =progress.json= shows as modified.
 
-** TODO I6 · =HOME= Keep them fresh every 10 minutes
+** DONE I6 · =HOME= Keep them fresh every 10 minutes
 The job, as a list: in =~/srv/lectures=, commit =progress.json= if it changed, then pull and push.
 In =~/srv/study-system=, pull and rebuild the site if anything arrived (or once an hour, for the
 dashboards). In =~/.timewarrior=, commit, pull and push. Finally, =task sync=. The helper
@@ -664,20 +684,20 @@ systemctl --user list-timers | grep home-refresh
 journalctl --user -u home-refresh -n 20        # what it did last time
 #+end_src
 
-** TODO I7 · =WORK= (optional) Use the home library from the work laptop too
+** DONE I7 · =WORK= (optional) Use the home library from the work laptop too
 Open =https://HOME_FQDN/= instead of running =serve.py= locally. All your reading progress then
 lives in one place. Run the local copy only when you are offline.
 
-* Phase J — Backups you can rebuild a machine from [0/10]
+* Phase J — Backups you can rebuild a machine from [3/10]
 What gets backed up (details and the reasons for restic in [[file:recovery.org][backups and recovery]]):
 - *Home laptop*: the *whole system* (every local filesystem: =/=, =/boot=, =/home=, …) *plus
   =/mnt/StorageHDD=*. It runs as root, daily at 03:30, together with a /manifest/ (package lists,
   partition tables, UUIDs, boot loader, services) that lets you rebuild the laptop.
-- *Work laptop*: =/home/hlima= only, daily at 13:15, over Tailscale.
+- *Work laptop*: =/home/hlima= only, daily at 00:00, over Tailscale.
 - *Tasks*: twice a day, a plain JSON export on both laptops, plus a copy of the sync server's
   database.
-
-** TODO J1 · =HOME= Check that everything fits on the drive
+  
+** DONE J1 · =HOME= Check that everything fits on the drive
 #+begin_src sh
 sudo du -xsh / /home /mnt/StorageHDD 2>/dev/null   # -x: each filesystem only
 df -h /run/media/archx/Toshiba_4T
@@ -687,7 +707,7 @@ Add the used sizes of the home laptop and the StorageHDD to the work laptop's ho
 with room to spare. If it doesn't, look at the biggest folders (=sudo du -xh --max-depth=2 / | sort -h | tail=)
 and add rebuildable ones to the excludes in J3.
 
-** TODO J2 · =BOTH= The restic password
+** DONE J2 · =BOTH= The restic password
 On the home laptop, restic runs as root and reads the password from =/etc/restic/password=:
 #+begin_src sh
 sudo mkdir -p /etc/restic && sudo chmod 700 /etc/restic
@@ -700,7 +720,7 @@ Ctrl-D.
 *Why this matters.* restic encrypts everything. If you lose this password, the backups cannot be
 read, even by you.
 
-** TODO J3 · =HOME= Install the system backup (look at what it wrote)
+** DONE J3 · =HOME= Install the system backup (look at what it wrote)
 #+begin_src sh
 sudo pacman -S --needed smartmontools fuse3        # disk-health warnings; browsing backups as folders
 sudo sh ~/sys_org/home_hub/bin/backup-system.sh install
@@ -838,3 +858,143 @@ restores have worked, delete the safety copies:
 =~/.task.v2 ~/.timewarrior.v1 ~/.timewarrior/data.home-only ~/tw-*.json ~/tw-work-data=,
 on the laptop where each one exists. Keep =/etc/fstab.bak-2026-09-25=, and keep =~/safety= (it is small)
 and its copies on the drive.
+
+* Phase N — Remote computing: Jupyter, Quarto, and ports [0/8]
+The home laptop does the computing (CPU, RAM, Docker); the work laptop and the phone only show the
+result. Two ways to reach a service running at home, and when to use each:
+- *On the tailnet address* (N3): for notebooks and web interfaces you start and stop often. No
+  tunnels; the phone can open them too. Only your own devices can reach that address.
+- *Through SSH on =127.0.0.1=* (N4): for services that restart at boot, anything without a password,
+  and one-off ports.
+
+** TODO N1 · =BOTH= A port scheme, decided once
+Pick a number per project and keep it, so you never have to look anything up. Write yours here:
+| Range  | For                                | Example                          |
+|--------+------------------------------------+----------------------------------|
+| 2255   | SSH on the home laptop (fixed)     | =ssh home=                       |
+| 443    | lecture library (tailscale serve)  | =https://home.tail53b947.ts.net/=  |
+| 8443   | study site (tailscale serve)       | =…:8443/notes/week.html=         |
+| 10000  | Taskwarrior sync (tailscale serve) | =task sync=                      |
+| 888x   | Jupyter, one per project/image     | 8881 thesis · 8882 portal · 8883 … |
+| 42xx   | Quarto previews                    | 4200 · 4201 …                    |
+| 80xx   | other web interfaces               | 8090 …                           |
+*Why.* 443, 8443 and 10000 already carry the phone pages and the task server through
+=tailscale serve=. New services go on the tailnet address (N3) or through SSH (N4), which need no
+per-port configuration. What is running at any moment:
+=ssh home 'docker ps --format "{{.Names}}  {{.Ports}}"'= and =ssh home ss -tlnp=.
+
+** TODO N2 · =WORK= A shell at home that survives disconnections
+#+begin_src sh
+sudo apt install tmux                      # on the work laptop too, if you like it there
+ssh -t home tmux new -A -s main            # attach to session "main", or create it
+#+end_src
+Add to =~/.bashrc= on the work laptop: =alias homesh='ssh -t home tmux new -A -s main'=.
+After a dropped connection (Wi-Fi, lid, relay hiccup), run =homesh= again and you are back where
+you were, editor and running jobs included. On the home laptop: =sudo pacman -S --needed tmux=.
+/Optional, for bad connections:/ mosh keeps the shell responsive and survives sleep. It needs UDP,
+which travels fine inside Tailscale even when the office blocks it outside:
+=sudo pacman -S mosh= (home), =sudo apt install mosh= (work), then =mosh home -- tmux new -A -s main=.
+Allow UDP 60000-61000 on =tailscale0= if the home laptop's firewall blocks it.
+
+** TODO N3 · =HOME= Publish containers on the tailnet address
+#+begin_src sh
+tailscale ip -4                            # the home laptop's fixed 100.x address → values sheet
+TS=$(tailscale ip -4)
+docker run -d --name nb-thesis -p $TS:8881:8888 -v ~/research_projects/thesis:/home/jovyan/work <image-a>
+docker run -d --name nb-portal -p $TS:8882:8888 -v ~/research_projects/portal:/home/jovyan/work <image-b>
+docker logs nb-thesis 2>&1 | grep -m1 token     # the URL with the login token
+#+end_src
+From the work laptop or the phone: =http://home.tail53b947.ts.net:8881/= (paste the token once).
+In =docker-compose.yml= the same idea: =ports: ["100.x.y.z:8881:8888"]=.
+*Why not plain =-p 8881:8888=.* Docker then opens the port on *every* network — your home Wi-Fi
+included — and its rules bypass the laptop's firewall. With the tailnet address in front, only your
+own devices reach it; with =127.0.0.1= in front (N4), only the laptop itself.
+*The one catch.* A container with =--restart unless-stopped= bound to the tailnet address can fail
+at boot if Docker starts before Tailscale has its address. Start those containers when you need
+them, or bind them to =127.0.0.1= and use N4.
+*Check.* =curl -sI http://home.tail53b947.ts.net:8881/ | head -1= from the work laptop answers;
+=curl -sI http://<home-LAN-IP>:8881/= from another home device does not.
+
+** TODO N4 · =WORK= Tunnels on the fly, one SSH login for all of them
+For services bound to =127.0.0.1= on the home laptop
+(e.g. =docker run -d --restart unless-stopped -p 127.0.0.1:8880:8888 …=).
+1. In =~/.ssh/config=, add to the existing =Host home= entry:
+   #+begin_example
+     ControlMaster auto
+     ControlPath ~/.ssh/cm-%C
+     ControlPersist 2h
+   #+end_example
+   One SSH connection is kept open in the background and reused by later =ssh home=, =scp= and
+   tunnels: the key passphrase is asked once, not per command. (This keeps a connection, not the
+   key: there is still no agent.)
+2. In =~/.bashrc=:
+   #+begin_src sh
+   fwd()   { ssh -O check home 2>/dev/null || ssh -fN home; for p in "$@"; do ssh -O forward -L "$p:localhost:$p" home && echo "localhost:$p -> home:$p"; done; }
+   unfwd() { for p in "$@"; do ssh -O cancel -L "$p:localhost:$p" home; done; }
+   #+end_src
+3. Use:
+   #+begin_src sh
+   fwd 8880 4200          # open http://localhost:8880 and http://localhost:4200 on the work laptop
+   unfwd 4200             # close one
+   ssh -O exit home       # close the shared connection and all its tunnels
+   #+end_src
+*This replaces* the old =ssh -p 22 -N -L 8880:localhost:8880 user@server=: the address, port 2255,
+user and key come from the =Host home= entry, and Tailscale makes it work from home and from work
+alike. /Optional/ — a fixed pair you open every day can live in its own entry:
+#+begin_example
+Host home-dev
+  HostName home.tail53b947.ts.net
+  User archx
+  Port 2255
+  IdentityFile ~/.ssh/id_ed25519_home
+  IdentitiesOnly yes
+  LocalForward 8880 localhost:8880
+  LocalForward 4200 localhost:4200
+  ExitOnForwardFailure yes
+  ServerAliveInterval 30
+#+end_example
+Then =ssh -N home-dev=.
+
+** TODO N5 · =HOME= Jupyter that survives reboots
+For the notebook you use most, let Docker keep it running (bound to =127.0.0.1=, see N3's catch):
+#+begin_src sh
+docker run -d --name jnb --restart unless-stopped \
+  -p 127.0.0.1:8880:8888 -v ~/research_projects:/home/jovyan/work <your-image>
+docker logs jnb 2>&1 | grep -m1 token
+#+end_src
+From the work laptop: =fwd 8880=, then =http://localhost:8880/=.
+*Check after a reboot (J9):* =ssh home docker ps= lists =jnb= as "Up".
+
+** TODO N6 · =HOME= Quarto in Docker with live preview
+Edit in nvim on the home laptop (inside =homesh=), render in a container, look at the result on
+the work laptop. In a second tmux window:
+#+begin_src sh
+cd ~/research_projects/<project>
+docker run --rm -it -p 127.0.0.1:4200:4200 -v "$PWD":/work -w /work <quarto-image> \
+  quarto preview analysis.qmd --host 0.0.0.0 --port 4200 --no-browser
+#+end_src
+- Inside the container, =--host 0.0.0.0= lets Docker's port mapping reach Quarto; on the laptop
+  side, =127.0.0.1:4200= keeps it private.
+- On the work laptop: =fwd 4200=, open =http://localhost:4200/=. Every save in nvim re-renders and
+  the page reloads by itself.
+- Several projects at once: 4201, 4202 … (N1).
+*Why run nvim at home and not on the work laptop.* Code, kernel, data and renderer all sit on one
+machine; only keystrokes and the finished page cross the network. Editing on the work laptop would
+mean syncing files on every save and a kernel on another machine.
+
+** TODO N7 · =HOME= nvim runs cells in the Docker kernel (quarto-nvim + molten)
+quarto-nvim's code runner (molten-nvim) can use the Jupyter server you already run instead of
+starting its own kernel:
+#+begin_example
+:MoltenInit http://localhost:8880/?token=<token>
+#+end_example
+Cells then run inside the container with the home laptop's CPU and RAM, and the output appears in
+nvim. =localhost:8880= here is the home laptop itself (N5), so no tunnel is involved.
+
+** TODO N8 · =BOTH= Notebooks into git
+- New work in =.qmd=: plain text, diffs and merges like the org notes, travels with =sync-all=.
+- Keep =.ipynb= out of the study system's git (its =.gitignore= already does); for a project repo
+  add =*.ipynb= and =.ipynb_checkpoints/= to =.gitignore= once its =.qmd= replaces it.
+- Rendered output (=_site/=, =*_files/=, =.quarto/=) is regenerated: ignore it too. Keep
+  =_freeze/= if you use =freeze: auto=, so the home laptop's computed results travel with the text.
+- To convert an existing notebook: =quarto convert notebook.ipynb= (writes =notebook.qmd=).
