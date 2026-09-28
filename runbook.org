@@ -346,12 +346,13 @@ Add keys to mobile devices in termux
 pkg install openssh
 ssh-keygen -t ed25519 -C "phone-termux"      # set a passphrase: phones get lost
 cat ~/.ssh/id_ed25519.pub                    # one line starting with ssh-ed25519 … phone-termux
+# Now on the home laptop
 ssh home "echo 'ssh-ed25519 AAAA…your line… phone-termux' >> ~/.ssh/authorized_keys"
 #+end_src
 Add this to .ssh /config
 #+begin_src
 Host home
-  HostName <tailnet ip 4>
+  HostName <tailnet dns>
   User archx
   Port 2255
 #+end_src
