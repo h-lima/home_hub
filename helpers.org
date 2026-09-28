@@ -27,8 +27,8 @@ runbook steps that you type yourself, after a safety snapshot.
 | =install-laptop.sh=   | work laptop        | once                                         | G7, J5–J7 (shortcut) | copies =~/.taskrc.sync=, merge drivers, backup + task-keep timers, =sync-all= link |
 | =home-refresh.sh=     | home laptop        | every 10 minutes (timer)                     | I6               | commits phone progress in =~/srv/lectures=, rebuilds the site, syncs time/tasks |
 | =backup-system.sh=    | home laptop (root) | daily 03:30; prune on Sundays; check monthly (timers) | J3, J4      | writes snapshots to the drive, a manifest in =/var/backups=                 |
-| =backup.sh=           | work laptop        | daily 13:15 (timer)                          | J5, J6           | writes snapshots of =/home/hlima= to the drive over SSH                     |
-| =task-keep.sh=        | both laptops       | 03:00 and 12:45 (timer)                      | J7               | adds =~/backups/tasks/tasks-DATE.json= (+ server DB copy at home)            |
+| =backup.sh=           | work laptop        | daily 01:30 (timer)                          | J5, J6           | writes snapshots of =/home/hlima= to the drive over SSH                     |
+| =task-keep.sh=        | both laptops       | daily: 03:00 home · 01:00 work (timer)       | J7               | adds =~/backups/tasks/tasks-DATE.json= (+ server DB copy at home)            |
 | =backup-clusters.sh=  | whichever machine can log in to the cluster | when you want (by hand)  | K2               | copies cluster folders to the drive (or =~/cluster-mirror=)                 |
 | =sync-all.sh=      | every machine      | when you sit down and when you get up        | L1               | pull/commit/push of your repositories, =task sync=                          |
 Two more helpers live with the lectures, not here:
@@ -125,7 +125,7 @@ laptop or the drive cannot be reached, it says so and exits quietly, and the tim
 later. Other subcommands: =init=, =snapshots=, =restore <snap> <path> <dir>=, =install-timer=. On the
 home laptop it refuses, and points you to =backup-system=.
 
-** task-keep.sh: tasks as plain JSON, twice a day
+** task-keep.sh: tasks as plain JSON, once a day
 Writes =~/backups/tasks/tasks-DATE.json= (a full =task export=, kept 90 days). On the home laptop
 it also writes =server-DATE.sqlite3=, a consistent copy of the sync server's database made with
 SQLite's own backup command (kept 14 days). If an export ever comes back empty, it keeps the old

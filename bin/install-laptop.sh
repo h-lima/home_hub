@@ -8,7 +8,7 @@
 #   * copies the Taskwarrior sync settings from it (~/.taskrc.sync) and includes them in ~/.taskrc
 #   * registers the merge drivers for lecture progress and Timewarrior data
 #   * creates this laptop's restic repository on the home drive and a daily backup timer
-#   * a twice-daily JSON export of all tasks (task-keep)
+#   * a daily JSON export of all tasks at 01:00 (task-keep), before the 01:30 backup
 #   * links `sync-all` into ~/.local/bin
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -46,7 +46,7 @@ else
   echo "  ! put the restic password in $RESTIC_PASSWORD_FILE (chmod 600), then run this again"
 fi
 
-say "twice-daily task export (task-keep)"
+say "daily task export (task-keep)"
 U=$HOME/.config/systemd/user; mkdir -p "$U"
 # daily task-keep (JSON export of all tasks + sync-server DB copy), ~/sys_org/home_hub/recovery.org scenario 7
 cat > "$U/task-keep.service" <<EOF
@@ -58,10 +58,9 @@ ExecStart=/bin/sh $HERE/task-keep.sh
 EOF
 cat > "$U/task-keep.timer" <<EOF
 [Unit]
-Description=task-keep twice a day
+Description=task-keep once a day
 [Timer]
-OnCalendar=*-*-* 03:00
-OnCalendar=*-*-* 12:45
+OnCalendar=*-*-* 01:00
 Persistent=true
 [Install]
 WantedBy=timers.target

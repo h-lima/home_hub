@@ -9,7 +9,7 @@
 #   study-web      the study-system site (read-only)          -> https://<home>.<tailnet>.ts.net:8443/
 #   tasksync       Taskwarrior 3 sync server                  -> https://<home>.<tailnet>.ts.net:10000/
 #   home-refresh   every 10 min: pull, rebuild the site, commit phone progress, sync time/tasks
-#   task-keep      twice a day: JSON export of every task + a consistent copy of the sync server DB
+#   task-keep      daily 03:00: JSON export of every task + a consistent copy of the sync server DB
 #   backup-system  (root) daily snapshot of the WHOLE laptop + /mnt/StorageHDD, weekly prune, monthly check
 # Everything listens on 127.0.0.1 only; `tailscale serve` publishes it to your tailnet with HTTPS.
 # Nothing is reachable from the internet.
@@ -119,10 +119,9 @@ ExecStart=/bin/sh $HERE/task-keep.sh
 EOF
 cat > "$U/task-keep.timer" <<EOF
 [Unit]
-Description=task-keep twice a day
+Description=task-keep once a day
 [Timer]
 OnCalendar=*-*-* 03:00
-OnCalendar=*-*-* 12:45
 Persistent=true
 [Install]
 WantedBy=timers.target

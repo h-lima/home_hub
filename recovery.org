@@ -11,10 +11,10 @@ laptop is dead.
 |--------------------------------------------------------+----------------------------------------------------+------------------------------------------------|
 | Home laptop: *the whole system* (/, /boot, /home, …)   | =backup-system= (root), daily 03:30                | a working laptop again, same as the day before |
 | Home laptop: =/mnt/StorageHDD= (documents, library, research) | the same snapshot                           | every file back, on a new disk if needed        |
-| Work laptop: =/home/hlima= only                        | =backup.sh= (user), daily 13:15 over Tailscale     | your files on a fresh Ubuntu install            |
+| Work laptop: =/home/hlima= only                        | =backup.sh= (user), daily 01:30 over Tailscale     | your files on a fresh Ubuntu install            |
 | Cluster data                                           | =backup-clusters.sh= (rsync)                       | a copy of your folders                          |
 | Study system, org-roam, lectures, Timewarrior          | GitHub (every =sync-all=) *and* the snapshots      | =git clone=                                     |
-| Tasks                                                  | every laptop's own database + =task-keep= JSON exports twice a day + the server DB copy + the snapshots | scenario 7 |
+| Tasks                                                  | every laptop's own database + =task-keep= JSON exports once a day + the server DB copy + the snapshots | scenario 7 |
 The Toshiba drive holds:
 #+begin_example
 /run/media/archx/Toshiba_4T/backups/
@@ -213,8 +213,8 @@ Behind that there are three more layers:
 | Layer                                                   | Where                                                            | How old at worst |
 |---------------------------------------------------------+------------------------------------------------------------------+------------------|
 | each laptop's own database                              | =~/.task/=                                                       | current          |
-| =task-keep= JSON exports (twice a day, 90 days)         | =~/backups/tasks/tasks-DATE.json= on both laptops                | 12 hours         |
-| =task-keep= copy of the server database (14 days)       | =~/backups/tasks/server-DATE.sqlite3= on the home laptop         | 12 hours         |
+| =task-keep= JSON exports (daily, 90 days)               | =~/backups/tasks/tasks-DATE.json= on both laptops                | 1 day            |
+| =task-keep= copy of the server database (14 days)       | =~/backups/tasks/server-DATE.sqlite3= on the home laptop         | 1 day            |
 | restic snapshots (all of the above)                     | the Toshiba drive                                                | 1 day            |
 | safety snapshots taken before risky steps               | =~/safety/= and =backups/safety/= on the drive                   | the day you took them |
 
@@ -292,7 +292,7 @@ which is one more reason 7b rebuilds from them.
 |-------------------------+--------------------------------------------------------------------------------------------------------------------|
 | automatic, weekly       | =backup-prune=: thin old snapshots and =restic check= every repository                                               |
 | automatic, monthly      | =backup-check=: read back 10% of every repository's data                                                            |
-| automatic, twice a day  | =task-keep=: JSON export of all tasks (both laptops) and a copy of the sync server's database (home)                  |
+| automatic, daily        | =task-keep=: JSON export of all tasks (both laptops) and a copy of the sync server's database (home)                  |
 | monthly review (10 min) | =sudo backup-system snapshots= (a snapshot from last night?), the same for the work laptop, =cat /var/backups/system-manifest/smart.txt=, =systemctl --failed=, =sh ~/sys_org/home_hub/bin/task-keep.sh --list= (today's export exists), and restore one random file from each laptop |
 | once a year             | rehearse scenario 3 or 4 in a virtual machine (virt-manager, or =qemu=) using the real drive: install, restore, boot. Note down every step that surprised you, here |
 

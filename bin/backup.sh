@@ -33,10 +33,10 @@ if is_home; then
   mountpoint -q "$BACKUP_DRIVE" || { echo "backup: $BACKUP_DRIVE is not mounted — nothing written"; exit 0; }
   REPO_BASE=$BACKUP_ROOT/restic
 else
-  if ! ssh -o BatchMode=yes -o ConnectTimeout=15 "$HOME_USER@$HOME_NODE" "mountpoint -q '$BACKUP_DRIVE'" 2>/dev/null; then
-    echo "backup: home laptop '$HOME_NODE' or its drive not reachable — skipped, will retry"; exit 0
+  if ! echo "ls $BACKUP_ROOT/restic" | sftp -b - -o ConnectTimeout=15 "$BACKUP_SSH_HOST" >/dev/null 2>&1; then
+    echo "backup: home laptop '$HOME_NODE' or its drive not reachable (via $BACKUP_SSH_HOST) — skipped, will retry"; exit 0
   fi
-  REPO_BASE=sftp:$HOME_USER@$HOME_NODE:$BACKUP_ROOT/restic
+  REPO_BASE=sftp:$BACKUP_SSH_HOST:$BACKUP_ROOT/restic
 fi
 export RESTIC_REPOSITORY="$REPO_BASE/$MACHINE"
 
@@ -73,8 +73,7 @@ fi
 case ${1:-backup} in
   init)
     [ -f "$RESTIC_PASSWORD_FILE" ] || { echo "Put the restic password in $RESTIC_PASSWORD_FILE (chmod 600) first"; exit 1; }
-    is_home && mkdir -p "$BACKUP_ROOT/restic"
-    is_home || ssh "$HOME_USER@$HOME_NODE" "mkdir -p '$BACKUP_ROOT/restic'"
+    is_home || echo "-mkdir $BACKUP_ROOT/restic" | sftp -b - "$BACKUP_SSH_HOST" >/dev/null
     restic init ;;
   backup)
     # the list of software you installed, so a replacement laptop can be rebuilt (home-recovery.org, scenario 5)
@@ -106,10 +105,9 @@ IOSchedulingClass=idle
 EOF
     cat > "$U/backup.timer" <<EOF
 [Unit]
-Description=Daily restic backup
+Description=Daily restic backup (01:30: at night, from home; after task-keep at 01:00)
 [Timer]
-OnCalendar=*-*-* 03:30
-OnCalendar=*-*-* 13:15
+OnCalendar=*-*-* 01:30
 Persistent=true
 RandomizedDelaySec=10min
 [Install]

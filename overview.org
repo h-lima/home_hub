@@ -31,7 +31,7 @@ What goes where:
 - *Backups*: the *whole home laptop* (system, home folder and =/mnt/StorageHDD=) and the work
   laptop's =/home/hlima= go onto =/run/media/archx/Toshiba_4T/backups=, as restic snapshots. The
   home laptop's snapshots come with a manifest to rebuild it from. Tasks are also exported as JSON
-  twice a day. The cluster folders are copied beside them. How to get everything back:
+  once a day. The cluster folders are copied beside them. How to get everything back:
   [[file:recovery.org][backups and recovery]].
 
 Do the steps in this order. Steps 7-8 repair the Taskwarrior and Timewarrior data that has
@@ -234,7 +234,7 @@ What it sets up, and how to check it:
 | =tasksync=     | Taskwarrior 3 sync server                                             | =task sync= on either laptop                   |
 | =home-refresh= | every 10 min: pull, rebuild, commit phone progress, sync time and tasks | =journalctl --user -u home-refresh -n 20=      |
 | =backup-system= (root) | 03:30: the whole laptop + =/mnt/StorageHDD= + manifest; prune+check Sundays, read-back monthly | =sudo backup-system snapshots= |
-| =task-keep=    | 03:00 and 12:45: JSON export of all tasks + copy of the sync server DB  | =sh ~/sys_org/home_hub/bin/task-keep.sh --list=       |
+| =task-keep=    | 03:00 daily: JSON export of all tasks + copy of the sync server DB      | =sh ~/sys_org/home_hub/bin/task-keep.sh --list=       |
 The pages are served from separate clones in =~/srv/=. You keep editing =~/learning/…= as always,
 and a half-finished edit never breaks what the phone shows. Everything listens on =127.0.0.1=:
 =tailscale serve= adds HTTPS and shows the pages only to devices on your tailnet.
@@ -246,8 +246,9 @@ sh ~/sys_org/home_hub/bin/install-laptop.sh
 #+end_src
 This copies the Taskwarrior sync settings, registers the two merge drivers, creates the work
 laptop's backup repository on the home drive, starts a daily backup timer and links =sync-all=.
-The backup runs at 13:15, so it usually runs while you are at work. It goes over Tailscale, and
-when the home laptop is unreachable it simply waits for the next run.
+The backup runs at 01:30 (after the 01:00 task export), at night from home rather than over the
+office network. It goes over Tailscale, and when the home laptop is unreachable it simply waits for
+the next run (=Persistent=true= catches up a missed one).
 
 * 11. The phone (Android)
 1. Keep the Tailscale app connected. It can stay on all the time, and only tailnet traffic uses it.

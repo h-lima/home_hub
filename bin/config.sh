@@ -15,6 +15,9 @@ BACKUP_ROOT=${BACKUP_ROOT:-$BACKUP_DRIVE/backups}
 # KEEP A COPY IN YOUR PASSWORD MANAGER: without it the backups cannot be read.
 RESTIC_PASSWORD_FILE=${RESTIC_PASSWORD_FILE:-$HOME/.config/restic/password}
 
+# SSH name the work laptop's backups use: the restricted key with no passphrase (Host home-backup in ~/.ssh/config)
+BACKUP_SSH_HOST=${BACKUP_SSH_HOST:-home-backup}
+
 # GitHub account that holds the private repositories.
 GITHUB_USER=${GITHUB_USER:-h-lima}
 

@@ -147,11 +147,11 @@ rows = [
     [p(TH), p("<b>home-refresh</b>", cell), p("every 10 min"),
      p("Pull + rebuild the study site in <font name='M'>~/srv</font>, commit phone reading progress, "
        "sync Timewarrior, <font name='M'>task sync</font>. Uses the passphrase-less deploy keys.")],
-    [p(TB), p("<b>task-keep</b>"), p("03:00 · 12:45"),
+    [p(TB), p("<b>task-keep</b>"), p("home 03:00<br/>work 01:00"),
      p("JSON export of all tasks → <font name='M'>~/backups/tasks/</font> (90 days); at home also a copy of the sync server DB (14 days).")],
     [p(TH), p("<b>backup-system</b> (root)"), p("daily 03:30"),
      p("Whole system + <font name='M'>/mnt/StorageHDD</font> + manifest → Toshiba drive; refreshes <font name='M'>backups/RECOVERY/</font>.")],
-    [p(TW), p("<b>backup</b>"), p("03:30 · 13:15"),
+    [p(TW), p("<b>backup</b>"), p("01:30"),
      p("<font name='M'>/home/hlima</font> → drive over Tailscale (backup key); skips quietly when home is unreachable, catches up later.")],
     [p(TH), p("<b>backup-prune</b> (root)"), p("Sun 05:00"),
      p("Thin snapshots (7 daily · 8 weekly · 24 monthly · 10 yearly), free space, <font name='M'>restic check</font> — every repository.")],
@@ -270,7 +270,7 @@ story += [band("9 · Keys, secrets, and where to look", ALL), Spacer(1, 3), box]
 def on_page(cv, doc):
     cv.saveState()
     cv.setFont("S", 7); cv.setFillColor(MUTED)
-    cv.drawString(M, 7 * mm, "home_hub cheat sheet · 2026-09-26")
+    cv.drawString(M, 7 * mm, "home_hub cheat sheet · " + __import__("datetime").date.today().isoformat())
     cv.drawRightString(W - M, 7 * mm, f"{doc.page} / 3")
     cv.setStrokeColor(RULE); cv.setLineWidth(0.5); cv.line(M, 10 * mm, W - M, 10 * mm)
     cv.restoreState()

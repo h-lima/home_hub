@@ -688,14 +688,14 @@ journalctl --user -u home-refresh -n 20        # what it did last time
 Open =https://HOME_FQDN/= instead of running =serve.py= locally. All your reading progress then
 lives in one place. Run the local copy only when you are offline.
 
-* Phase J — Backups you can rebuild a machine from [3/10]
+* Phase J — Backups you can rebuild a machine from [4/10]
 What gets backed up (details and the reasons for restic in [[file:recovery.org][backups and recovery]]):
 - *Home laptop*: the *whole system* (every local filesystem: =/=, =/boot=, =/home=, …) *plus
   =/mnt/StorageHDD=*. It runs as root, daily at 03:30, together with a /manifest/ (package lists,
   partition tables, UUIDs, boot loader, services) that lets you rebuild the laptop.
-- *Work laptop*: =/home/hlima= only, daily at 00:00, over Tailscale.
-- *Tasks*: twice a day, a plain JSON export on both laptops, plus a copy of the sync server's
-  database.
+- *Work laptop*: =/home/hlima= only, daily at 01:30, over Tailscale (at night, from home).
+- *Tasks*: once a day, a plain JSON export on both laptops (01:00 work laptop, 03:00 home
+  laptop, each before its backup), plus a copy of the sync server's database.
   
 ** DONE J1 · =HOME= Check that everything fits on the drive
 #+begin_src sh
@@ -735,7 +735,7 @@ Then read the three files it created. They are yours to change:
 The script itself was copied to =/usr/local/sbin/backup-system=, so a file in your home folder never
 runs as root. After editing the script in =~/sys_org/home_hub/bin/=, run =install= again.
 
-** TODO J4 · =HOME= First snapshot, and read the manifest
+** DONE J4 · =HOME= First snapshot, and read the manifest
 #+begin_src sh
 sudo backup-system run          # the first run copies everything: hours for 1 TB; later runs take minutes
 sudo backup-system snapshots
@@ -760,20 +760,44 @@ because =home= is reached through Tailscale.
 
 ** TODO J6 · =WORK= Daily timer
 =~/sys_org/home_hub/bin/backup.sh= wraps the commands from J5 (plus the apt list). It skips quietly when
-the home laptop is out of reach, and =Persistent=true= catches up the missed run later:
+the home laptop is out of reach, and =Persistent=true= catches up the missed run later.
+The timer runs at 01:30, at night from home, not over the office network:
 #+begin_src sh
 sh ~/sys_org/home_hub/bin/backup.sh snapshots     # same list as J5
 sh ~/sys_org/home_hub/bin/backup.sh install-timer
 systemctl --user list-timers | grep backup
 #+end_src
 
-** TODO J7 · =BOTH= Tasks: twice-daily exports, and the server's database
+** TODO J7 · =BOTH= Tasks: daily exports, and the server's database
 =~/sys_org/home_hub/bin/task-keep.sh= writes =~/backups/tasks/tasks-DATE.json= (keeps 90 days), a plain
 export any Taskwarrior can import. On the home laptop it also writes
 =server-DATE.sqlite3= (keeps 14 days), a consistent copy of the sync server's database. The
-installers set it up as =task-keep.timer=, at 03:00 and 12:45, before each backup. By hand:
+installers set it up as =task-keep.timer=, once a day before each backup: *03:00* on the home
+laptop, *01:00* on the work laptop. By hand, on each laptop (change the time on the work laptop):
 #+begin_src sh
-sh ~/sys_org/home_hub/bin/task-keep.sh && sh ~/sys_org/home_hub/bin/task-keep.sh --list
+mkdir -p ~/.config/systemd/user
+cat > ~/.config/systemd/user/task-keep.service <<'EOF'
+[Unit]
+Description=Daily JSON export of all tasks (and a copy of the sync server database)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh %h/sys_org/home_hub/bin/task-keep.sh
+EOF
+cat > ~/.config/systemd/user/task-keep.timer <<'EOF'
+[Unit]
+Description=task-keep once a day
+
+[Timer]
+OnCalendar=*-*-* 03:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+systemctl --user daemon-reload && systemctl --user enable --now task-keep.timer
+systemctl --user start task-keep.service && journalctl --user -u task-keep -n 5 --no-pager
+sh ~/sys_org/home_hub/bin/task-keep.sh --list
 #+end_src
 Together with each laptop's own full copy of the tasks, this gives five layers. See
 [[file:recovery.org][scenario 7]] for what to do when the sync server breaks.
