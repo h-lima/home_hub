@@ -213,7 +213,7 @@ systemctl status sshd --no-pager | head -3
 *Why.* The work laptop sends its backups to the drive over SSH (SFTP), and later copies a settings
 file this way too. In step E3 you turn password logins off.
 
-* Phase C — Tailscale on every device [5/6]
+* Phase C — Tailscale on every device [6/6]
 ** DONE C1 · Admin console (browser, any device)
 Log in at login.tailscale.com. Under *DNS*: turn on *MagicDNS*, and under /HTTPS Certificates/
 click *Enable HTTPS*. Write the tailnet domain (=tail?????.ts.net=) in the values sheet.
@@ -237,7 +237,7 @@ Then, in the admin console → Machines → =home= → ⋯ → *Disable key expi
 *Why.* Every device's login expires after 180 days by default. For a laptop you use every day that
 is fine; for an unattended server it means the hub silently disappears one day.
 
-** TODO C4 · =WORK= Install and join
+** DONE C4 · =WORK= Install and join
 #+begin_src sh
 curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up
