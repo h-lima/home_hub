@@ -31,6 +31,11 @@ defaults
 # shellcheck disable=SC1090
 [ -f "$CONF" ] && . "$CONF"
 export RESTIC_PASSWORD_FILE
+# systemd starts root services without $HOME, and restic then refuses to run ("unable to locate
+# cache directory"). sudo sets HOME=/root, which is why manual runs worked. Give restic a fixed
+# cache folder (it is rebuildable, and /var/cache is already in the excludes).
+export RESTIC_CACHE_DIR=${RESTIC_CACHE_DIR:-/var/cache/restic}
+mkdir -p "$RESTIC_CACHE_DIR" 2>/dev/null || true
 HOST=$(hostname -s)
 REPO=$BACKUP_ROOT/restic/$HOST
 MANIFEST=/var/backups/system-manifest
