@@ -1,0 +1,388 @@
+#!/usr/bin/env python3
+"""ports: read and check the port registry (~/sys_org/home_hub/ports.txt).
+
+  ports [list] [QUERY...]     the entries (all, or those matching every QUERY)
+  ports check                 errors in the file, and the moves still pending (exit 1 on errors)
+  ports next KIND [PROJECT]   the first free port for a new service
+  ports next block [KIND]     the first free block of ten (default: web) for a new project
+  ports num QUERY...          just the numbers, e.g.  fwd $(ports num thesis)
+  ports ssh QUERY...          LocalForward lines for ~/.ssh/config
+  ports live                  what is listening on this machine, compared with the file
+
+A QUERY matches a port number, a kind, a project, a service, or PROJECT/SERVICE (any case).
+The file is found next to bin/ (../ports.txt), or wherever $PORTS_FILE points.
+Python 3 standard library only; works the same on the home and the work laptop.
+"""
+import os
+import re
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass, field
+
+BINDS = {"lo", "ts", "all", "serve"}
+STATUS_RE = re.compile(r"^(ok|planned|was:\d{1,5})$")
+FORWARDABLE = {"lo", "ts"}  # what makes sense to tunnel from the other laptop
+
+
+@dataclass
+class Span:
+    first: int
+    last: int
+    name: str      # the kind (range) or the project (block)
+    text: str
+    line: int
+
+    def __contains__(self, port):
+        return self.first <= port <= self.last
+
+
+@dataclass
+class Entry:
+    port: int
+    kind: str
+    project: str
+    service: str
+    bind: str
+    status: str
+    note: str
+    line: int
+
+    @property
+    def was(self):
+        return int(self.status[4:]) if self.status.startswith("was:") else None
+
+    def matches(self, q):
+        q = q.lower()
+        return q in (str(self.port), self.kind, self.project, self.service,
+                     f"{self.project}/{self.service}")
+
+
+@dataclass
+class Registry:
+    path: str
+    ranges: list = field(default_factory=list)
+    blocks: list = field(default_factory=list)
+    reserved: dict = field(default_factory=dict)
+    entries: list = field(default_factory=list)
+    errors: list = field(default_factory=list)
+
+    def err(self, line, msg):
+        self.errors.append((line, msg))
+
+
+def registry_path():
+    if os.environ.get("PORTS_FILE"):
+        return os.environ["PORTS_FILE"]
+    here = os.path.dirname(os.path.realpath(__file__))
+    return os.path.join(os.path.dirname(here), "ports.txt")
+
+
+def parse_span(tok):
+    m = re.fullmatch(r"(\d{1,5})-(\d{1,5})", tok)
+    if not m:
+        return None
+    a, b = int(m[1]), int(m[2])
+    return (a, b) if 0 < a <= b <= 65535 else None
+
+
+def load(path):
+    reg = Registry(path)
+    try:
+        lines = open(path, encoding="utf-8").read().splitlines()
+    except OSError as e:
+        sys.exit(f"ports: cannot read {path}: {e.strerror}")
+    for n, raw in enumerate(lines, 1):
+        body, _, note = raw.partition("#")
+        tok = body.split()
+        if not tok:
+            continue
+        head = tok[0]
+        if head in ("range", "block"):
+            span = parse_span(tok[1]) if len(tok) > 2 else None
+            if not span:
+                reg.err(n, f"{head} needs FIRST-LAST NAME: {raw.strip()}")
+                continue
+            text = " ".join(tok[3:])
+            (reg.ranges if head == "range" else reg.blocks).append(
+                Span(span[0], span[1], tok[2].lower(), text, n))
+        elif head == "reserve":
+            if len(tok) < 2 or not tok[1].isdigit():
+                reg.err(n, f"reserve needs a port: {raw.strip()}")
+                continue
+            port = int(tok[1])
+            if port in reg.reserved:
+                reg.err(n, f"{port} is reserved twice")
+            reg.reserved[port] = " ".join(tok[2:])
+        elif head.isdigit():
+            if len(tok) != 6:
+                reg.err(n, "an entry is PORT KIND PROJECT SERVICE BIND STATUS  # note"
+                           f" (found {len(tok)} columns)")
+                continue
+            port, kind, project, service, bind, status = tok
+            port = int(port)
+            if not 0 < port <= 65535:
+                reg.err(n, f"{port} is not a TCP port")
+            if bind not in BINDS:
+                reg.err(n, f"bind '{bind}' should be one of {', '.join(sorted(BINDS))}")
+            if not STATUS_RE.match(status):
+                reg.err(n, f"status '{status}' should be ok, planned or was:NNNN")
+            reg.entries.append(Entry(port, kind.lower(), project.lower(), service.lower(),
+                                     bind, status, note.strip(), n))
+        else:
+            reg.err(n, f"unknown line: {raw.strip()}")
+    return reg
+
+
+# ------------------------------------------------------------------ checks
+
+def check(reg):
+    errors = list(reg.errors)
+    kinds = {r.name for r in reg.ranges}
+
+    # ranges of different kinds must not overlap; blocks must not overlap
+    for group, label in ((reg.ranges, "range"), (reg.blocks, "block")):
+        for i, a in enumerate(group):
+            for b in group[i + 1:]:
+                if a.first <= b.last and b.first <= a.last and (label == "block" or a.name != b.name):
+                    errors.append((b.line, f"{label} {b.first}-{b.last} {b.name} overlaps "
+                                           f"{a.first}-{a.last} {a.name} (line {a.line})"))
+    for b in reg.blocks:
+        if not any(b.first in r and b.last in r for r in reg.ranges):
+            errors.append((b.line, f"block {b.first}-{b.last} is not inside one range"))
+
+    seen = {}
+    for e in reg.entries:
+        where = f"{e.project}/{e.service}"
+        if e.port in seen:
+            o = seen[e.port]
+            errors.append((e.line, f"{e.port} {where} is already {o.project}/{o.service} (line {o.line})"))
+        seen.setdefault(e.port, e)
+        if e.port in reg.reserved:
+            errors.append((e.line, f"{e.port} {where}: reserved ({reg.reserved[e.port]})"))
+        if e.kind not in kinds:
+            errors.append((e.line, f"{e.port} {where}: no range for kind '{e.kind}'"))
+        elif not any(e.port in r and r.name == e.kind for r in reg.ranges):
+            errors.append((e.line, f"{e.port} {where}: outside the {e.kind} range ({span_text(reg, e.kind)})"))
+        blk = block_of(reg, e.port)
+        if blk and blk.name != e.project:
+            errors.append((e.line, f"{e.port} {where}: inside {blk.name}'s block {blk.first}-{blk.last}"))
+        if e.kind == "web" and not blk:
+            errors.append((e.line, f"{e.port} {where}: web ports go in the project's block "
+                                   f"(add one: ports next block)"))
+
+    pending = [e for e in reg.entries if e.was is not None]
+    planned = [e for e in reg.entries if e.status == "planned"]
+    return sorted(errors), pending, planned
+
+
+def span_text(reg, kind):
+    return ", ".join(f"{r.first}-{r.last}" if r.first != r.last else str(r.first)
+                     for r in reg.ranges if r.name == kind)
+
+
+def block_of(reg, port):
+    return next((b for b in reg.blocks if port in b), None)
+
+
+# ------------------------------------------------------------------ next free
+
+def taken(reg):
+    """Numbers that can't be handed out: entries, their old numbers, reserved ports."""
+    used = {e.port for e in reg.entries} | {e.was for e in reg.entries if e.was}
+    return used | set(reg.reserved)
+
+
+def next_port(reg, kind, project=None):
+    ranges = [r for r in reg.ranges if r.name == kind]
+    if not ranges:
+        sys.exit(f"ports: no range for kind '{kind}'. Kinds: {', '.join(sorted({r.name for r in reg.ranges}))}")
+    used = taken(reg)
+    if project:
+        own = [b for b in reg.blocks if b.name == project and any(b.first in r for r in ranges)]
+        for b in own:
+            for p in range(b.first, b.last + 1):
+                if p not in used:
+                    return p, f"in {project}'s block {b.first}-{b.last}"
+        if own:
+            sys.exit(f"ports: {project}'s {kind} block is full; widen it or add another block")
+    if kind == "web":
+        sys.exit("ports: web ports live in a project block. "
+                 + ("Add one first: ports next block" if project else "Say which project: ports next web PROJECT"))
+    for r in ranges:
+        for p in range(r.first, r.last + 1):
+            if p not in used and not block_of(reg, p):
+                return p, f"in the {kind} range, outside every block"
+    sys.exit(f"ports: the {kind} range ({span_text(reg, kind)}) is full")
+
+
+def next_block(reg, kind="web", size=10):
+    used = taken(reg)
+    for r in (r for r in reg.ranges if r.name == kind):
+        start = r.first - r.first % size if r.first % size else r.first
+        for a in range(start, r.last + 1, size):
+            b = a + size - 1
+            if a < r.first or b > r.last:
+                continue
+            if any(a <= x.last and x.first <= b for x in reg.blocks):
+                continue
+            if any(a <= p <= b for p in used):
+                continue
+            return a, b
+    sys.exit(f"ports: no free block of {size} left in the {kind} range")
+
+
+# ------------------------------------------------------------------ live
+
+def listening():
+    """{port: description} for TCP ports listening on this machine (Linux, ss or /proc)."""
+    out = {}
+    if shutil.which("ss"):
+        try:
+            text = subprocess.run(["ss", "-tlnpH"], capture_output=True, text=True, timeout=5).stdout
+        except (OSError, subprocess.SubprocessError):
+            text = ""
+        for line in text.splitlines():
+            cols = line.split()
+            if len(cols) < 4:
+                continue
+            addr = cols[3]
+            port = addr.rsplit(":", 1)[-1]
+            if not port.isdigit():
+                continue
+            proc = re.search(r'users:\(\("([^"]+)"', line)
+            host = addr.rsplit(":", 1)[0]
+            desc = f"{host} {proc[1] if proc else ''}".strip()
+            out.setdefault(int(port), set()).add(desc)
+        if out:
+            return {p: ", ".join(sorted(d)) for p, d in out.items()}
+    for fn in ("/proc/net/tcp", "/proc/net/tcp6"):  # fallback without ss
+        try:
+            rows = open(fn).read().splitlines()[1:]
+        except OSError:
+            continue
+        for row in rows:
+            cols = row.split()
+            if cols[3] == "0A":  # LISTEN
+                out[int(cols[1].split(":")[1], 16)] = "listening"
+    return out
+
+
+# ------------------------------------------------------------------ output
+
+def table(entries):
+    if not entries:
+        print("(nothing matches)")
+        return
+    w = [max(len(x) for x in col) for col in zip(*[(str(e.port), e.kind, e.project, e.service, e.bind, e.status)
+                                                   for e in entries])]
+    for e in sorted(entries, key=lambda e: (e.project, e.port)):
+        cells = (str(e.port), e.kind, e.project, e.service, e.bind, e.status)
+        print("  ".join(c.ljust(n) for c, n in zip(cells, w)) + (f"  # {e.note}" if e.note else ""))
+
+
+def select(reg, queries):
+    return [e for e in reg.entries if all(e.matches(q) for q in queries)]
+
+
+def select_any(reg, queries):
+    hits = [e for e in reg.entries if any(e.matches(q) for q in queries)]
+    if not hits:
+        sys.exit(f"ports: nothing matches {' '.join(queries)}")
+    return sorted(hits, key=lambda e: e.port)
+
+
+def main(argv):
+    cmd, args = (argv[0], argv[1:]) if argv else ("list", [])
+    if cmd in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        return 0
+    reg = load(registry_path())
+
+    if cmd == "list" or cmd.isdigit() or cmd not in ("check", "next", "num", "ssh", "live"):
+        queries = args if cmd == "list" else [cmd] + args
+        table(select(reg, [q for q in queries]))
+        return 0
+
+    if cmd == "check":
+        errors, pending, planned = check(reg)
+        for line, msg in errors:
+            print(f"{reg.path}:{line}: {msg}")
+        if pending:
+            print("\nMoves still pending (the configs use the old number):")
+            olds = {}
+            for e in pending:
+                olds.setdefault(e.was, []).append(e)
+            for e in sorted(pending, key=lambda e: e.was):
+                shared = len(olds[e.was]) > 1 or e.was in {x.port for x in reg.entries}
+                why = ("   (old number shared: a clash until moved)" if shared
+                       else "   (old number is a reserved default)" if e.was in reg.reserved else "")
+                print(f"  {e.was:>5} -> {e.port:<5} {e.project}/{e.service}{why}")
+        if planned:
+            print("\nPlanned (not running yet): "
+                  + ", ".join(f"{e.port} {e.project}/{e.service}" for e in planned))
+        print(f"\n{len(reg.entries)} entries, {len(reg.ranges)} ranges, {len(reg.blocks)} blocks: "
+              + ("OK" if not errors else f"{len(errors)} error(s)"))
+        return 1 if errors else 0
+
+    if cmd == "next":
+        if not args:
+            sys.exit("usage: ports next KIND [PROJECT] | ports next block [KIND]")
+        if args[0] == "block":
+            a, b = next_block(reg, args[1].lower() if len(args) > 1 else "web")
+            print(f"{a}-{b}")
+            print(f"  add:  block    {a}-{b}    PROJECT", file=sys.stderr)
+            return 0
+        kind = args[0].lower()
+        project = args[1].lower() if len(args) > 1 else None
+        p, why = next_port(reg, kind, project)
+        print(p)
+        print(f"  ({why})\n  add:  {p:<7} {kind:<9} {project or 'PROJECT':<13} SERVICE  lo  ok   # where it's set",
+              file=sys.stderr)
+        return 0
+
+    if cmd in ("num", "ssh") and not args:
+        sys.exit(f"usage: ports {cmd} QUERY...")
+
+    if cmd == "num":
+        print(" ".join(str(e.port) for e in select_any(reg, args)))
+        return 0
+
+    if cmd == "ssh":
+        for e in select_any(reg, args):
+            if e.bind in FORWARDABLE:
+                print(f"  LocalForward {e.port} localhost:{e.port}   # {e.project}/{e.service}")
+        return 0
+
+    if cmd == "live":
+        live = listening()
+        if not live:
+            sys.exit("ports: could not read the listening sockets (no ss and no /proc/net/tcp)")
+        by_port = {e.port: e for e in reg.entries}
+        by_old = {}
+        for e in reg.entries:
+            if e.was:
+                by_old.setdefault(e.was, []).append(e)
+        for port in sorted(live):
+            what = live[port]
+            if port in by_port:
+                e = by_port[port]
+                tag = f"{e.project}/{e.service}"
+            elif port in by_old:
+                tag = "OLD number of " + ", ".join(f"{e.project}/{e.service}" for e in by_old[port])
+            elif port in reg.reserved:
+                tag = f"reserved: {reg.reserved[port]}"
+            elif port >= 32768:
+                continue  # ephemeral listeners (editors, language servers, browsers)
+            else:
+                tag = "NOT IN THE REGISTRY"
+            print(f"{port:>5}  {tag:<45} {what}")
+        return 0
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except BrokenPipeError:
+        pass

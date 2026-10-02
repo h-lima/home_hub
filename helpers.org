@@ -31,6 +31,7 @@ runbook steps that you type yourself, after a safety snapshot.
 | =task-keep.sh=        | both laptops       | daily: 03:00 home · 01:00 work (timer)       | J7               | adds =~/backups/tasks/tasks-DATE.json= (+ server DB copy at home)            |
 | =backup-clusters.sh=  | whichever machine can log in to the cluster | when you want (by hand)  | K2               | copies cluster folders to the drive (or =~/cluster-mirror=)                 |
 | =sync-all.sh=      | every machine      | when you sit down and when you get up        | L1               | pull/commit/push of your repositories, =task sync=                          |
+| =ports=               | both laptops       | before giving a service a port; to see what is running | N1     | nothing: reads =../ports.txt= (and =ss= for =ports live=)                   |
 Two more helpers live with the lectures, not here:
 - =~/learning/lectures/main_lectures/tools/progress-merge.py= merges reading progress (step F3).
 - =~/learning/lectures/main_lectures/html-books/serve.py= serves the library. It now accepts
@@ -137,6 +138,16 @@ Reads =~/.config/home-server/clusters= (lines of =name ssh-host remote-path=) an
 On the home laptop the copy goes straight to =backups/clusters/<name>/=, and files deleted on the
 cluster are kept in =.deleted/<date>/=. On any other laptop it goes to =~/cluster-mirror/=, which
 that laptop's backup then carries to the drive. It only reads from the clusters.
+
+** ports: the port registry
+*Does:* reads =~/sys_org/home_hub/ports.txt=, the one list of every port a service of yours opens.
+=ports check= finds duplicates, reserved defaults and ports outside their range, and lists the moves
+still pending (=was:NNNN=). =ports next KIND [PROJECT]= gives the first free number,
+=ports next block= gives a block of ten for a new web project, =ports num thesis= prints only the
+numbers (=fwd $(ports num thesis)=), =ports ssh learning= prints =LocalForward= lines, and
+=ports live= compares what is listening on this machine with the file.
+*Use:* =ln -s ~/sys_org/home_hub/bin/ports ~/.local/bin/ports= once per laptop.
+*Touches:* nothing. Edit =ports.txt= by hand; the file explains its own format.
 
 ** sync-all.sh: the one command of the daily rhythm
 Runs =bin/sync.sh= for the study system, then pull, commit and push for the lectures, org-roam (only

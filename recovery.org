@@ -222,7 +222,7 @@ Behind that there are three more layers:
 Check the server first:
 #+begin_src sh
 ssh home 'systemctl --user status tasksync --no-pager; journalctl --user -u tasksync -n 30 --no-pager'
-ssh home 'tailscale serve status'           # port 10000 must still point to 127.0.0.1:8080
+ssh home 'tailscale serve status'           # port 10000 must still point to 127.0.0.1:8767
 ssh home 'systemctl --user restart tasksync'
 #+end_src
 If it runs, and the error persists or mentions versions or history, go to 7b.

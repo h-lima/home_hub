@@ -444,7 +444,7 @@ $EDITOR ~/.config/systemd/user/tasksync.service
 Description=Taskwarrior 3 sync server (taskchampion)
 
 [Service]
-ExecStart=/usr/bin/taskchampion-sync-server --listen 127.0.0.1:8080 --data-dir %h/.local/share/taskchampion-sync-server --allow-client-id PASTE-CLIENT-ID
+ExecStart=/usr/bin/taskchampion-sync-server --listen 127.0.0.1:8767 --data-dir %h/.local/share/taskchampion-sync-server --allow-client-id PASTE-CLIENT-ID
 Restart=on-failure
 
 [Install]
@@ -455,14 +455,14 @@ WantedBy=default.target
 systemctl --user daemon-reload
 systemctl --user enable --now tasksync
 systemctl --user status tasksync --no-pager | head -5       # active (running)
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/   # any number, not "000"
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8767/   # any number, not "000"
 #+end_src
 *Why 127.0.0.1.* The server is never exposed on the network directly. Tailscale publishes it in the
 next step, with HTTPS, and only to your own devices.
 
 ** DONE G4 · =HOME= Publish it to the tailnet
 #+begin_src sh
-tailscale serve --bg --https=10000 http://127.0.0.1:8080
+tailscale serve --bg --https=10000 http://127.0.0.1:8767
 tailscale serve status
 curl -s -o /dev/null -w '%{http_code}\n' https://HOME_FQDN:10000/
 #+end_src
@@ -892,21 +892,55 @@ result. Two ways to reach a service running at home, and when to use each:
 - *Through SSH on =127.0.0.1=* (N4): for services that restart at boot, anything without a password,
   and one-off ports.
 
-** TODO N1 · =BOTH= A port scheme, decided once
-Pick a number per project and keep it, so you never have to look anything up. Write yours here:
-| Range  | For                                | Example                          |
-|--------+------------------------------------+----------------------------------|
-| 2255   | SSH on the home laptop (fixed)     | =ssh home=                       |
-| 443    | lecture library (tailscale serve)  | =https://home.tail53b947.ts.net/=  |
-| 8443   | study site (tailscale serve)       | =…:8443/notes/week.html=         |
-| 10000  | Taskwarrior sync (tailscale serve) | =task sync=                      |
-| 888x   | Jupyter, one per project/image     | 8881 thesis · 8882 portal · 8883 … |
-| 42xx   | Quarto previews                    | 4200 · 4201 …                    |
-| 80xx   | other web interfaces               | 8090 …                           |
+** TODO N1 · =BOTH= A port scheme, decided once: =ports.txt=
+Every port is listed in [[file:ports.txt][ports.txt]], one line per port, and the =ports= helper reads it
+(helpers.org). The rules, in short (the file has the full version):
+1. One number means one service on every machine. The tunnels in N4 reuse the same number on
+   the work laptop, so a number can't be reused on the other laptop either.
+2. Each kind has its own range, and a /block/ keeps a project's ports together. Each web project
+   gets a block of ten in 8010-8099.
+| Range       | For                                              | Now                                          |
+|-------------+--------------------------------------------------+----------------------------------------------|
+| 2255        | SSH on the home laptop                           | =ssh home=                                   |
+| 443 · 8443 · 10000-10009 | =tailscale serve= front doors           | lectures · study site · =task sync=          |
+| 8760-8779   | hub back ends behind =tailscale serve=           | 8765 lectures · 8766 study site · 8767 tasks |
+| 4200-4299   | Quarto previews                                  | 4200-4204 learning · 4210 slides             |
+| 8880-8899   | Jupyter                                          | 8880 jnb (N5) · 8881-8886 research · 8889 slides · 8890-8894 learning |
+| 8780-8789   | RStudio                                          | 8787 sabinahsbm                              |
+| 8010-8099   | web apps, a block of ten per project             | 8010 meteopalacio · 8020 socioeco · 8030 regen · 8040 slides |
+| 5430-5449   | PostgreSQL                                       | 5433 regen · 5434 socioeco                   |
+| 1025-1029 · 1880-1889 | SMTP catcher · MQTT                    | 1025 · 1883 regen                            |
+3. The usual defaults are never assigned: 8000, 8001, 8080, 8888, 5432, 3000, 5000, 5173. A quick
+   =runserver= or =jupyter lab= then never collides with a registered service.
+4. Bind to =127.0.0.1= unless you have a reason not to (N3 explains why plain =-p= is risky).
+#+begin_src sh
+ln -s ~/sys_org/home_hub/bin/ports ~/.local/bin/ports    # once, on each laptop
+ports check                 # the file is consistent; lists moves still pending
+ports next jupyter          # a number for a new notebook image (→ add a line, ports check)
+ports next block            # a block of ten for a new web project
+ports thesis                # what does "thesis" use?    fwd $(ports num thesis)
+ports live                  # what is listening on THIS machine, compared with the file
+#+end_src
 *Why.* 443, 8443 and 10000 already carry the phone pages and the task server through
 =tailscale serve=. New services go on the tailnet address (N3) or through SSH (N4), which need no
-per-port configuration. What is running at any moment:
-=ssh home 'docker ps --format "{{.Names}}  {{.Ports}}"'= and =ssh home ss -tlnp=.
+per-port configuration. What is running at any moment: =ssh home ports live= (or
+=ssh home 'docker ps --format "{{.Names}}  {{.Ports}}"'=).
+
+** TODO N1a · =HOME= Move the task server from 8080 to 8767
+8080 is the default of many tools (ChirpStack for the agri-portal, among others), so the task
+server moves into the hub range. Clients don't change: they keep using =https://HOME_FQDN:10000=.
+#+begin_src sh
+systemctl --user stop tasksync
+sed -i 's/127.0.0.1:8080/127.0.0.1:8767/' ~/.config/systemd/user/tasksync.service
+systemctl --user daemon-reload && systemctl --user start tasksync
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8767/      # any number, not "000"
+tailscale serve --https=10000 off
+tailscale serve --bg --https=10000 http://127.0.0.1:8767
+tailscale serve status                                             # 10000 → 127.0.0.1:8767
+task sync                                                          # also from the work laptop
+#+end_src
+Then set =was:8080= to =ok= on the =8767= line of =ports.txt=. (Running =install-home.sh= again
+does the same, since =config.sh= now says 8767.)
 
 ** TODO N2 · =WORK= A shell at home that survives disconnections
 #+begin_src sh
@@ -925,9 +959,11 @@ Allow UDP 60000-61000 on =tailscale0= if the home laptop's firewall blocks it.
 #+begin_src sh
 tailscale ip -4                            # the home laptop's fixed 100.x address → values sheet
 TS=$(tailscale ip -4)
-docker run -d --name nb-thesis -p $TS:8881:8888 -v ~/research_projects/thesis:/home/jovyan/work <image-a>
-docker run -d --name nb-portal -p $TS:8882:8888 -v ~/research_projects/portal:/home/jovyan/work <image-b>
-docker logs nb-thesis 2>&1 | grep -m1 token     # the URL with the login token
+J='jupyter notebook --ip 0.0.0.0 --port 8880 --no-browser --allow-root'   # 8880 inside these images
+docker run -d --name nb-sabina   -p $TS:8881:8880 -v ~/research_projects/sabinahsbm:/work -w /work <sabinahsbm image> $J
+docker run -d --name nb-analysis -p $TS:8882:8880 -v ~/research_projects/analysis:/work -w /work <base_analysis image> $J
+docker logs nb-sabina 2>&1 | grep -m1 token     # the URL with the login token
+# numbers from ports.txt (ports num sabinahsbm analysis); a new image: ports next jupyter
 #+end_src
 From the work laptop or the phone: =http://home.tail53b947.ts.net:8881/= (paste the token once).
 In =docker-compose.yml= the same idea: =ports: ["100.x.y.z:8881:8888"]=.

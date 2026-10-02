@@ -22,9 +22,10 @@ BACKUP_SSH_HOST=${BACKUP_SSH_HOST:-home-backup}
 GITHUB_USER=${GITHUB_USER:-h-lima}
 
 # Local ports on the home laptop (only 127.0.0.1; Tailscale publishes them to your devices).
+# Numbers come from the port registry, ../ports.txt (hub range 8760-8779). Check with: ports check
 LECTURES_PORT=${LECTURES_PORT:-8765}   # https://<home>.<tailnet>.ts.net/        (lecture library)
 STUDY_PORT=${STUDY_PORT:-8766}         # https://<home>.<tailnet>.ts.net:8443/   (study-system site)
-TASKSYNC_PORT=${TASKSYNC_PORT:-8080}   # https://<home>.<tailnet>.ts.net:10000/  (Taskwarrior sync)
+TASKSYNC_PORT=${TASKSYNC_PORT:-8767}   # https://<home>.<tailnet>.ts.net:10000/  (Taskwarrior sync)
 
 # Where the home laptop keeps its read-only serving clones (separate from the copies you edit).
 SRV_DIR=${SRV_DIR:-$HOME/srv}

@@ -1,0 +1,115 @@
+# Port registry: every TCP port a service of mine opens on a host.        ~/sys_org/home_hub/ports.txt
+#
+# RULES
+#  1. One number means one service, on every machine. Containers run on the home laptop and get
+#     tunnelled to the work laptop on the same number (fwd, LocalForward), so a number can't be
+#     reused on the other laptop either.
+#  2. Each kind of service has its own range (the "range" lines). Inside a range, a "block" keeps a
+#     project's ports together. Every web project gets a block of ten in 8010-8099, and all of its
+#     HTTP services go in that block: web app, public site, API, tiles, mail inbox.
+#  3. The usual defaults (the "reserve" lines) are never assigned. A quick `runserver`,
+#     `jupyter lab` or `npm run dev` then never collides with anything listed here.
+#  4. Bind to 127.0.0.1 unless there is a reason not to. Reach it with `fwd PORT` (SSH) or
+#     `tailscale serve`. Plain `-p 8040:8000` opens the port to every network, Wi-Fi included.
+#  5. Only ports that open on a host go here. Ports that stay inside a container or a Compose
+#     network (dolt 3306 in `investment`, `db:5432` seen from `tools`) don't.
+#
+# HOW TO ADD ONE
+#   ports next KIND [PROJECT]   first free port: in the project's block if it has one there,
+#                               otherwise in the kind's range outside everyone's blocks
+#   ports next block [KIND]     first free block of ten (default kind: web) for a new project
+#   Then add a line below and run `ports check`.
+#
+# FORMAT (columns separated by spaces; everything after "#" on an entry line is the note)
+#   range    FIRST-LAST  KIND      what it is for
+#   block    FIRST-LAST  PROJECT   ports in FIRST-LAST belong to PROJECT (required for web)
+#   reserve  PORT        why it's never assigned
+#   PORT  KIND  PROJECT  SERVICE  BIND  STATUS   # where it's set
+#     BIND    lo = 127.0.0.1 | ts = tailnet address | all = every interface | serve = tailscale serve
+#     STATUS  ok | was:NNNN (the configs still use NNNN; move pending) | planned (not built yet)
+
+# ---------------------------------------------------------------- ranges
+range    2200-2299    ssh        SSH daemons
+range    443-443      front      tailscale serve HTTPS front doors (phone, tailnet)
+range    8443-8443    front      tailscale serve HTTPS front doors
+range    10000-10009  front      tailscale serve HTTPS front doors
+range    1025-1029    smtp       SMTP catchers in development (Mailpit)
+range    1880-1889    mqtt       MQTT brokers
+range    4200-4299    quarto     Quarto live previews
+range    4840-4849    study      study-system tools (live pages)
+range    5430-5449    postgres   PostgreSQL / PostGIS / TimescaleDB, one per project
+range    8010-8099    web        web apps, one block of ten per project (see "block")
+range    8760-8779    hub        hub back ends on the home laptop, behind tailscale serve
+range    8780-8789    rstudio    RStudio Server
+range    8880-8899    jupyter    Jupyter (learning: 889N pairs with 420N)
+
+# ---------------------------------------------------------------- project blocks
+block    4200-4209    learning
+block    8890-8899    learning
+block    4210-4219    slides
+block    8880-8887    research
+block    8010-8019    meteopalacio
+block    8020-8029    socioeco
+block    8030-8039    regen
+block    8040-8049    slides
+
+# ---------------------------------------------------------------- never assigned
+reserve  22     system sshd default
+reserve  80     HTTP
+reserve  3000   Node / Grafana / Martin tiles default
+reserve  5000   Flask / pygeoapi default
+reserve  5173   Vite default
+reserve  5432   PostgreSQL default (a PostgreSQL installed on the host; meteopalacio's README uses it)
+reserve  8000   Django runserver / python -m http.server default
+reserve  8001   runserver "+1"
+reserve  8080   generic HTTP default (ChirpStack, Tomcat, many images)
+reserve  8888   Jupyter default
+
+# ---------------------------------------------------------------- entries
+# PORT  KIND      PROJECT       SERVICE          BIND   STATUS
+2255    ssh       hub           sshd-home        all    ok        # home laptop sshd; `ssh home` (runbook E2)
+443     front     hub           lectures         serve  ok        # https://home.<tailnet>.ts.net/ → 8765
+8443    front     hub           study-site       serve  ok        # …:8443 → 8766
+10000   front     hub           tasksync         serve  ok        # …:10000 → 8767; `task sync`
+
+8765    hub       hub           lectures-web     lo     ok        # home_hub config.sh LECTURES_PORT; serve.py
+8766    hub       hub           study-web        lo     ok        # home_hub config.sh STUDY_PORT; also study-system bin/serve.sh default
+8767    hub       hub           tasksync         lo     ok  # home_hub config.sh TASKSYNC_PORT; move: runbook N1a
+
+4200    quarto    learning      learn            lo     ok        # dockerfiles/base_learning/compose.yml
+4201    quarto    learning      math             lo     ok        # dockerfiles/base_learning/compose.yml
+4202    quarto    learning      programming      lo     ok        # dockerfiles/base_learning/compose.yml
+4203    quarto    learning      probstats        lo     ok        # dockerfiles/base_learning/compose.yml
+4204    quarto    learning      thesis           lo     ok        # dockerfiles/base_learning/compose.yml
+8890    jupyter   learning      learn            lo     ok        # dockerfiles/base_learning/compose.yml
+8891    jupyter   learning      math             lo     ok        # dockerfiles/base_learning/compose.yml
+8892    jupyter   learning      programming      lo     ok        # dockerfiles/base_learning/compose.yml
+8893    jupyter   learning      probstats        lo     ok        # dockerfiles/base_learning/compose.yml
+8894    jupyter   learning      thesis           lo     ok        # dockerfiles/base_learning/compose.yml
+
+4210    quarto    slides        quarto-reveal    lo     ok        # dockerfiles/quarto_reveal (.env QUARTO_PORT)
+8889    jupyter   slides        quarto-reveal    lo     ok        # dockerfiles/quarto_reveal (.env JUPYTER_PORT)
+8040    web       slides        revealjs         lo     ok        # dockerfiles/reveal_presentations
+
+8880    jupyter   research      jnb              lo     planned   # always-on notebook, runbook N5
+8881    jupyter   research      sabinahsbm       lo     ok        # dockerfiles/sabinahsbm (docker run -p 127.0.0.1:8881:8880)
+8787    rstudio   research      sabinahsbm       lo     ok        # dockerfiles/sabinahsbm RStudio Server
+8882    jupyter   research      analysis         lo     ok        # dockerfiles/base_analysis + hp_predict, hsbmr, newts_diet, quadlife, vluc (one at a time)
+8883    jupyter   research      webscraping      lo     ok        # dockerfiles/webscraping
+8884    jupyter   research      investment       lo     ok        # dockerfiles/investment
+8885    jupyter   research      math-probstats   lo     ok        # dockerfiles/math_probstats (older; base_learning math/probstats replace it)
+8886    jupyter   research      programming      lo     ok        # dockerfiles/programming (older; base_learning programming replaces it)
+
+4848    study     study         in-env           lo     ok        # study-system bin/in-env.sh --port
+
+8010    web       meteopalacio  web              lo     was:8000  # git_code/meteopalacio_app: `manage.py runserver 8010` (work code, not changed here)
+
+8020    web       socioeco      web              lo     was:8000  # socioeco course code/compose.yaml `tools`; move with the course
+5434    postgres  socioeco      db               lo     was:5432  # socioeco course .env POSTGRES_PORT; move with the course
+
+8030    web       regen         internal         lo     was:8000  # agri-portal course `make run`; move with the course
+8031    web       regen         public           lo     was:8001  # agri-portal course `make run-public`
+8035    web       regen         mailpit-ui       lo     was:8025  # agri-portal compose `mail`
+5433    postgres  regen         db               lo     ok        # agri-portal compose `db` (DB_PORT)
+1025    smtp      regen         mailpit          lo     ok        # agri-portal compose `mail` (SMTP_PORT)
+1883    mqtt      regen         mosquitto        lo     ok        # agri-portal compose `mqtt` (AP030)
